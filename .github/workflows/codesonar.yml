@@ -44,9 +44,9 @@ jobs:
           with:
             path: |
                 ~/.m2/repository/
-            key: ${{ runner.os }}-mvn-${{ hashFiles('activemq-artemis/**/pom.xml') }}
+            key: ${{ runner.os }}-mvn-${{ github.commit }}
             restore-keys: |
-                ${{ runner.os }}-mvn-
+                ${{ runner.os }}-mvn-${{ github.commit }}
         - name: Build only server
           run: |
             cd activemq-artemis/artemis-server
