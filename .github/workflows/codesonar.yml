@@ -9,14 +9,6 @@ on:
 
 jobs:
 
-    Populate_Docker_cache:
-      runs-on: self-hosted
-      steps:
-      - name: Cache Docker images.
-        uses: ScribeMD/docker-cache@0.3.7
-        with:
-           key: mvn-cso-builder-8.0p0-1
-
     CodeSonar_Analyze:
         permissions: write-all
         runs-on: self-hosted
@@ -76,15 +68,15 @@ jobs:
           uses: actions/upload-artifact@v3
           with:
               name: SARIF file
-              path: warnings-translate.sarif
+              path: activemq-artemis/warnings.sarif
         - name: Push Summary Report
           if: ${{ github.event.pull_request }}
           uses: thollander/actions-comment-pull-request@v2
           with: 
-              filePath: warnings.md
+              filePath: activemq-artemis/warnings.md
         - name: Upload SARIF results
           uses: github/codeql-action/upload-sarif@v2
           with:
-              sarif_file: warnings-translate.sarif
+              sarif_file: activemq-artemis/warnings.sarif
               category: "CodeSecure CodeSonar"     
     
