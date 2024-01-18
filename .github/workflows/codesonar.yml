@@ -8,6 +8,15 @@ on:
       - 'release/**'   
 
 jobs:
+
+    Populate_Docker_cache:
+      runs-on: self-hosted
+      steps:
+      - name: Cache Docker images.
+        uses: ScribeMD/docker-cache@0.3.7
+        with:
+           key: docker-${{ runner.os }}-${{ hashFiles(paths) }}
+
     CodeSonar_Analyze:
         permissions: write-all
         runs-on: self-hosted
