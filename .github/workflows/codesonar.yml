@@ -36,8 +36,6 @@ jobs:
 
         steps:
         - uses: actions/checkout@v3
-          with:
-            path: activemq-artemis
 
         - name: Cache Maven Local Repo
           if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -50,7 +48,7 @@ jobs:
                 ${{ runner.os }}-mvn-${{ github.head_ref || github.ref_name }} 
         - name: Build only server
           run: |
-            cd activemq-artemis/artemis-server
+            cd artemis-server
             mvn -Pdev package -DskipTests -T $(nproc)
         - name: Checkout CodeSonar CI-Script
           uses: actions/checkout@v4
@@ -60,23 +58,22 @@ jobs:
             path: cso-scripts
         - name: Build and analyze scan with CodeSonar
           run: |
-            cd activemq-artemis
-            python3 ../cso-scripts/build_and_analyze.py scripts/codesonar.conf \
+            python3 cso-scripts/build_and_analyze.py scripts/codesonar.conf \
             $CSONAR_CSHOME/codesonar/bin/cs-java-scan -include-artifacts artemis-server/target/artemis-server*-SNAPSHOT.jar -include-sources "artemis-server/src/**" 
         - name: Upload SARIF to GitHub #Use this if you do not have GitHub Enterpris
           if: ${{ github.event.pull_request }}
           uses: actions/upload-artifact@v3
           with:
               name: SARIF file
-              path: activemq-artemis/warnings.sarif
+              path: warnings.sarif
         - name: Push Summary Report
           if: ${{ github.event.pull_request }}
           uses: thollander/actions-comment-pull-request@v2
           with: 
-              filePath: activemq-artemis/warnings.md
+              filePath: warnings.md
         - name: Upload SARIF results
           uses: github/codeql-action/upload-sarif@v2
           with:
-              sarif_file: activemq-artemis/warnings.sarif
+              sarif_file: warnings.sarif
               category: "CodeSecure CodeSonar"     
     
