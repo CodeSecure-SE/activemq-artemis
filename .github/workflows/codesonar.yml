@@ -44,9 +44,9 @@ jobs:
           with:
             path: |
                 ~/.m2/repository/
-            key: ${{ runner.os }}-mvn-${{ github.sha }}
+            key: ${{ runner.os }}-mvn-${{ github.head_ref || github.ref_name }} 
             restore-keys: |
-                ${{ runner.os }}-mvn-${{ github.sha }}
+                ${{ runner.os }}-mvn-${{ github.head_ref || github.ref_name }} 
         - name: Build only server
           run: |
             cd activemq-artemis/artemis-server
@@ -59,7 +59,7 @@ jobs:
             path: cso-scripts
         - name: Build and analyze scan with CodeSonar
           run: |
-            ls -la artemis-server/target
+            cd activemq-artemis
             python3 cso-scripts/build_and_analyze.py scripts/codesonar.conf \
             $CSONAR_CSHOME/codesonar/bin/cs-java-scan -include-artifacts artemis-server/target/artemis-server*-SNAPSHOT.jar -include-sources "artemis-server/src/**" 
         - name: Upload SARIF to GitHub #Use this if you do not have GitHub Enterpris
