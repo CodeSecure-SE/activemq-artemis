@@ -47,10 +47,15 @@ jobs:
             key: ${{ runner.os }}-mvn-${{ hashFiles('activemq-artemis/**/pom.xml') }}
             restore-keys: |
                 ${{ runner.os }}-mvn-
-
         - name: Build only server
           run: |
             cd activemq-artemis/artemis-server
             mvn -Pdev package -DskipTests -T $(nproc)
+        - name: Scan with CodeSonar
+          run: |
+            echo $CSONAR_HUB_PASSWORD > pwfile
+            $CSONAR_CSHOME/codesonar/bin/codesonar analyze -hubuser $CSONAR_HUB_USER \
+            -hubpasswordfile pwfile -huburl $CSONAR_HUB_URL -project $PROJECT_NAME \
+            $CSONAR_CSHOME/codesonar/bin/cs-java-scan -include-artifacts target/artemis-server*-SNAPSHOT.jar -include-sources "src/**" 
 
     
