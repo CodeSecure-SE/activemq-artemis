@@ -15,7 +15,7 @@ jobs:
       - name: Cache Docker images.
         uses: ScribeMD/docker-cache@0.3.7
         with:
-           key: docker-${{ runner.os }}-${{ hashFiles(paths) }}
+           key: docker-${{ runner.os }}-8.0p0-1
 
     CodeSonar_Analyze:
         permissions: write-all
