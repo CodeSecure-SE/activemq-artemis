@@ -1,0 +1,56 @@
+name: CodeSonar
+on:
+  push:                  # Only run onces the Pull request is created
+    branches:
+      - 'release/**'               # Feature Branches
+  pull_request:
+    branches:
+      - 'release/**'   
+
+jobs:
+    CodeSonar_Analyze:
+        permissions: write-all
+        runs-on: self-hosted
+        container:
+        image: canuckmh/nginx-cso-builder:8.0p0
+        credentials:
+            username: ${{ secrets.DOCKERHUB_USERNAME }}
+            password: ${{ secrets.DOCKERHUB_TOKEN }}
+        env:
+            CAFILE: ".github/github.cert.pem" 
+            TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+            API_URL: https://api.github.com
+            REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+            ROOT_TREE: "OSS-Projects/ActiveMQ-Artemis" 
+            PROJECT_NAME: "ActiveMQ_Artemis"
+            BRANCH_NAME: ${{ github.head_ref || github.ref_name }} 
+            CSONAR_HUB_URL: "https://partnerdemo.codesonar.com" 
+            CSONAR_HUB_USER: "${{ secrets.CSONAR_HUB_USER }}"
+            CSONAR_HUB_PASSWORD: "${{ secrets.CSONAR_HUB_PASS }}"
+            CSONAR_CSHOME: /opt/codesonar
+            COMMIT_HASH: ${{ github.sha }}
+            REPO_URL: "http://github.com/CodeSecure-SE/ActiveMQ-Artemis"    # the github.repositoryUrl is not an http-link.
+            TARGET: ${{ github.base_ref }}
+            IS_PR: ${{ github.event_name }}
+
+        steps:
+        - uses: actions/checkout@v3
+          with:
+            path: activemq-artemis
+
+        - name: Cache Maven Local Repo
+          if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          uses: actions/cache@v3
+          with:
+            path: |
+                ~/.m2/repository/
+            key: ${{ runner.os }}-mvn-${{ hashFiles('activemq-artemis/**/pom.xml') }}
+            restore-keys: |
+                ${{ runner.os }}-mvn-
+
+        - name: Build only server
+          run: |
+            cd activemq-artemis/artemis-server
+            mvn -Pdev package -DskipTests -T $(nproc)
+
+    
