@@ -9,7 +9,8 @@
 	"customizations": {
 		"vscode": {
 			"extensions": [
-				"CodeSecure.vscode-codesonar"
+				"CodeSecure.vscode-codesonar",
+				"vscjava.vscode-java-pack"
 			]
 		}
 	}
