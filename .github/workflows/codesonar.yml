@@ -1,0 +1,83 @@
+name: CodeSonar
+on:
+  push:                  # Only run onces the Pull request is created
+    branches:
+      - 'release/**'               # Feature Branches
+  pull_request:
+    branches:
+      - 'release/**'   
+
+jobs:
+
+    CodeSonar_Analyze:
+        permissions: write-all
+        runs-on: self-hosted
+        container:
+            image: codesecurese/mvn-csoj-builder:8.0p0
+            credentials:
+                username: ${{ secrets.DOCKERHUB_USERNAME }}
+                password: ${{ secrets.DOCKERHUB_TOKEN }}
+        env:
+            CAFILE: ".github/github.cert.pem" 
+            TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+            API_URL: https://api.github.com
+            REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+            ROOT_TREE: "OSS-Projects/ActiveMQ-Artemis" 
+            PROJECT_NAME: "ActiveMQ_Artemis"
+            BRANCH_NAME: ${{ github.head_ref || github.ref_name }} 
+            CSONAR_HUB_URL: "https://partnerdemo.codesonar.com" 
+            CSONAR_HUB_USER: "${{ secrets.CSONAR_HUB_USER }}"
+            CSONAR_HUB_PASSWORD: "${{ secrets.CSONAR_HUB_PASS }}"
+            CSONAR_CSHOME: /opt/codesonar
+            COMMIT_HASH: ${{ github.sha }}
+            REPO_URL: "http://github.com/CodeSecure-SE/ActiveMQ-Artemis"    # the github.repositoryUrl is not an http-link.
+            TARGET: ${{ github.base_ref }}
+            IS_PR: ${{ github.event_name }}
+
+        steps:
+        - uses: actions/checkout@v3
+
+        - name: Cache Maven Local Repo
+          if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          uses: actions/cache@v3
+          with:
+            path: |
+                ~/.m2/repository/
+            key: ${{ runner.os }}-mvn-${{ github.head_ref || github.ref_name }} 
+            restore-keys: |
+                ${{ runner.os }}-mvn-${{ github.head_ref || github.ref_name }} 
+        - name: Build only server
+          run: |
+            cd artemis-server
+            mvn -Pdev package -DskipTests -T $(nproc)
+        - name: Checkout CodeSonar CI-Script
+          uses: actions/checkout@v4
+          with:
+            repository: CodeSecure-SE/codesonar_ci
+            ref: main
+            path: cso-scripts
+        - name: Build and analyze scan with CodeSonar
+          run: |
+            python3 cso-scripts/build_and_analyze.py scripts/codesonar.conf \
+            $CSONAR_CSHOME/codesonar/bin/cs-java-scan -include-artifacts artemis-server/target/artemis-server*-SNAPSHOT.jar -include-sources "artemis-server/src/**" 
+        - name: Upload SARIF to GitHub #Use this if you do not have GitHub Enterprise
+          if: ${{ github.event.pull_request }}
+          uses: actions/upload-artifact@v3
+          with:
+              name: SARIF file
+              path: warnings.sarif
+        - name: Push Summary Report
+          if: ${{ github.event.pull_request }}
+          uses: thollander/actions-comment-pull-request@v2
+          with: 
+              filePath: warnings.md
+# Currently broken
+              #        - name: Remove srcroot
+#          run: |
+#            python3 cso-scripts/remove_srcroot.py warnings.sarif > warnings-nosrcroot.sarif
+#        - name: Upload SARIF results
+#          uses: github/codeql-action/upload-sarif@v3
+#          with:
+#              sarif_file: warnings-nosrcroot.sarif
+#              category: "CodeSecure CodeSonar"     
+    
