@@ -33,7 +33,7 @@ jobs:
             REPO_URL: "http://github.com/CodeSecure-SE/ActiveMQ-Artemis"    # the github.repositoryUrl is not an http-link.
             TARGET: ${{ github.base_ref }}
             IS_PR: ${{ github.event_name }}
-            COMPONENT: "artemis-mqtt-protocol"
+            COMPONENT: "artemis-protocols/artemis-mqtt-protocol"
 
         steps:
         - uses: actions/checkout@v3
