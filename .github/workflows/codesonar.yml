@@ -60,7 +60,7 @@ jobs:
         - name: Build and analyze scan with CodeSonar
           run: |
             python3 cso-scripts/build_and_analyze.py scripts/codesonar.conf \
-            $CSONAR_CSHOME/codesonar/bin/cs-java-scan -include-artifacts $SUBCOMPONENT/*/target/artemis*-SNAPSHOT.jar -include-sources "$SUBCOMPONENT/*/src/**" 
+            $CSONAR_CSHOME/codesonar/bin/cs-java-scan -include-artifacts "$SUBCOMPONENT/*/target/artemis*-SNAPSHOT.jar:"" -include-sources "$SUBCOMPONENT/*/src/**" 
         - name: Upload SARIF to GitHub #Use this if you do not have GitHub Enterprise
           if: ${{ github.event.pull_request }}
           uses: actions/upload-artifact@v3
