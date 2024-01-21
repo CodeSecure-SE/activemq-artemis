@@ -1,0 +1,32 @@
+{
+    "version": "2.0.0",
+    "inputs": [
+    {
+    "id": "codesonarAnalysisName",
+    "type": "promptString",
+    "description": "CodeSonar analysis name",
+    "default": "Analysis-1234"
+    }
+    ],
+    "tasks": [
+    {
+    "type": "shell",
+    "label": "Java: CodeSonar analyze",
+    "command": "${config:codesonar.installDir}/codesonar/bin/codesonar",
+    "args": [
+    "analyze",
+    "-remote-archive", "\"/saas/*\"",
+    "cso-protocols",
+    "-hubuser", "${config:codesonar.hubUser}",
+    "-auth", "certificate",
+    "-name", "${input:codesonarAnalysisName}",
+    "-conf-file", "scripts/codesonar.conf",
+    "-project", "OSS-Projects/ActiveMQ-Artemis/developers/${config:codesonar.hubUser}",
+    "${config:codesonar.hubAddress}",
+    "${config:codesonar.installDir}/codesonar/bin/cs-java-scan", "-include-artifacts",  "\"artemis-protocols/*/target/artemis*-SNAPSHOT.jar\"", "-include-sources", "\"**/*.java\"" 
+    ],
+    "group": "build",
+    "detail": "builder: make"
+    }
+    ]
+    }

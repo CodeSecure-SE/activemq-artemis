@@ -4,7 +4,7 @@
 **/bin
 **/obj
 .idea/
-.vscode/
+.vscode/settings.json
 ratReport.txt
 **/server.lock
 **/data
@@ -33,3 +33,8 @@ artemis-native/src/main/c/org_apache_activemq_artemis_jlibaio_LibaioContext.h
 
 # overlay outpit
 **/overlays/**/*
+
+# For Codsonar
+cso-protocols*
+cso-protocols*/**
+*.sarif
