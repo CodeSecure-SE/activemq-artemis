@@ -12,7 +12,11 @@
 				"CodeSecure.vscode-codesonar",
 				"vscjava.vscode-java-pack",
 				"github.vscode-github-actions",
+<<<<<<< Updated upstream
 				"redhat.java"
+=======
+				"MS-SarifVSCode.sarif-viewer"
+>>>>>>> Stashed changes
 			]
 		}
 	}
