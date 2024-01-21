@@ -11,7 +11,8 @@
 			"extensions": [
 				"CodeSecure.vscode-codesonar",
 				"vscjava.vscode-java-pack",
-				"github.vscode-github-actions"
+				"github.vscode-github-actions",
+				"redhat.java"
 			]
 		}
 	}
