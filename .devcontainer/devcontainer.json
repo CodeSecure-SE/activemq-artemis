@@ -2,7 +2,7 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/cpp
 {
 	"name": "Artemis - CodeSonar ",
-	"image": "codesecurese/mvn-csoj-builder:8.0p0",
+	"image": "codesecurese/mvn-csoj-builder:8.1p0",
 	"mounts" : [
 	"source=${localEnv:HOME}/.csurf,target=/home/user/.csurf,type=bind"
 	],
