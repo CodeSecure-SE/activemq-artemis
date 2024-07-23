@@ -13,7 +13,7 @@ jobs:
         permissions: write-all
         runs-on: codesecure-runner-set
         container:
-            image: codesecurese/mvn-csoj-builder:8.1p0
+            image: ghcr.io/codesecure-se/mvn-csoj-builder:8.1p0
         env:
             CAFILE: ".github/github.cert.pem" 
             TOKEN: "${{ secrets.GITHUB_TOKEN }}"
