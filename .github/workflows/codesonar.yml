@@ -11,7 +11,7 @@ jobs:
 
     CodeSonar_Analyze:
         permissions: write-all
-        runs-on: self-hosted
+        runs-on: codesecure-runner-set
         container:
             image: codesecurese/mvn-csoj-builder:8.1p0
             credentials:
