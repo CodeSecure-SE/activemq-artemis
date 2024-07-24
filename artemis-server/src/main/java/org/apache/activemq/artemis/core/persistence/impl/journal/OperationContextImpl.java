@@ -311,22 +311,19 @@ public class OperationContextImpl implements OperationContext {
    private void execute(final IOCallback task) {
       EXECUTORS_PENDING_UPDATER.incrementAndGet(this);
       try {
-         executor.execute(new Runnable() {
-            @Override
-            public void run() {
-               try {
-                  // If any IO is done inside the callback, it needs to be done on a new context
-                  OperationContextImpl.clearContext();
-                  task.done();
-               } finally {
-                  EXECUTORS_PENDING_UPDATER.decrementAndGet(OperationContextImpl.this);
-               }
+         executor.execute(() -> {
+            try {
+               // If any IO is done inside the callback, it needs to be done on a new context
+               OperationContextImpl.clearContext();
+               task.done();
+            } finally {
+               EXECUTORS_PENDING_UPDATER.decrementAndGet(OperationContextImpl.this);
             }
          });
       } catch (Throwable e) {
          ActiveMQServerLogger.LOGGER.errorExecutingAIOCallback(e);
          EXECUTORS_PENDING_UPDATER.decrementAndGet(this);
-         task.onError(ActiveMQExceptionType.INTERNAL_ERROR.getCode(), "It wasn't possible to complete IO operation - " + e.getMessage());
+         task.onError(ActiveMQExceptionType.INTERNAL_ERROR.getCode(), "It wasn't possible to complete IO operation due to " + e.getClass() + ": " + e.getMessage());
       }
    }
 

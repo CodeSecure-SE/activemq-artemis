@@ -16,8 +16,9 @@
  */
 package org.apache.activemq.artemis.protocol.amqp.broker;
 
+import static org.apache.activemq.artemis.protocol.amqp.proton.AmqpSupport.getReceiverPriority;
+
 import java.lang.invoke.MethodHandles;
-import java.util.Map;
 import java.util.concurrent.Executor;
 
 import org.apache.activemq.artemis.api.config.ActiveMQDefaultConfiguration;
@@ -83,8 +84,6 @@ public class AMQPSessionCallback implements SessionCallback {
 
    private static final Logger logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
-   private static final Symbol PRIORITY = Symbol.getSymbol("priority");
-
    protected final IDGenerator consumerIDGenerator = new SimpleIDGenerator(0);
 
    private final AMQPConnectionCallback protonSPI;
@@ -108,8 +107,6 @@ public class AMQPSessionCallback implements SessionCallback {
    private final boolean directDeliver;
 
    private final CoreMessageObjectPools coreMessageObjectPools = new CoreMessageObjectPools();
-
-   private final AddressQueryCache<AddressQueryResult> addressQueryCache = new AddressQueryCache<>();
 
    private ProtonTransactionHandler transactionHandler;
 
@@ -172,6 +169,10 @@ public class AMQPSessionCallback implements SessionCallback {
       }
    }
 
+   public void execute(Runnable run) {
+      sessionExecutor.execute(run);
+   }
+
    public void afterIO(IOCallback ioCallback) {
       OperationContext context = recoverContext();
       try {
@@ -227,29 +228,66 @@ public class AMQPSessionCallback implements SessionCallback {
 
    }
 
-   public Object createSender(ProtonServerSenderContext protonSender,
-                              SimpleString queue,
-                              String filter,
-                              boolean browserOnly) throws Exception {
-      long consumerID = consumerIDGenerator.generateID();
+   /**
+    * Creates a server consume that reads from the given named queue and forwards the read messages to
+    * the AMQP sender to dispatch to the remote peer. The consumer priority value is extracted from the
+    * remote link properties that were assigned by the remote receiver.
+    *
+    * @param protonSender
+    *    The {@link ProtonServerReceiverContext} that will be attached to the resulting consumer
+    * @param queue
+    *    The target queue that the consumer reads from.
+    * @param filter
+    *    The filter assigned to the consumer of the target queue.
+    * @param browserOnly
+    *    Should the consumer act as a browser on the target queue.
+    *
+    * @return a new {@link ServerConsumer} attached to the given queue.
+    *
+    * @throws Exception if an error occurs while creating the consumer instance.
+    */
+   public ServerConsumer createSender(ProtonServerSenderContext protonSender,
+                                      SimpleString queue,
+                                      String filter,
+                                      boolean browserOnly) throws Exception {
+      return createSender(protonSender, queue, filter, browserOnly, getReceiverPriority(protonSender.getSender().getRemoteProperties()));
+   }
 
-      filter = SelectorTranslator.convertToActiveMQFilterString(filter);
-
-      int priority = getPriority(protonSender.getSender().getRemoteProperties());
-
-      ServerConsumer consumer = serverSession.createConsumer(consumerID, queue, SimpleString.toSimpleString(filter), priority, browserOnly, false, null);
+   /**
+    * Creates a server consume that reads from the given named queue and forwards the read messages to
+    * the AMQP sender to dispatch to the remote peer.
+    *
+    * @param protonSender
+    *    The {@link ProtonServerReceiverContext} that will be attached to the resulting consumer
+    * @param queue
+    *    The target queue that the consumer reads from.
+    * @param filter
+    *    The filter assigned to the consumer of the target queue.
+    * @param browserOnly
+    *    Should the consumer act as a browser on the target queue.
+    * @param priority
+    *    The priority to assign the new consumer (server defaults are used if not set).
+    *
+    * @return a new {@link ServerConsumer} attached to the given queue.
+    *
+    * @throws Exception if an error occurs while creating the consumer instance.
+    */
+   public ServerConsumer createSender(ProtonServerSenderContext protonSender,
+                                      SimpleString queue,
+                                      String filter,
+                                      boolean browserOnly,
+                                      Number priority) throws Exception {
+      final long consumerID = consumerIDGenerator.generateID();
+      final SimpleString filterString = SimpleString.of(SelectorTranslator.convertToActiveMQFilterString(filter));
+      final int consumerPriority = priority != null ? priority.intValue() : ActiveMQDefaultConfiguration.getDefaultConsumerPriority();
+      final ServerConsumer consumer = serverSession.createConsumer(
+         consumerID, queue, filterString, consumerPriority, browserOnly, false, null);
 
       // AMQP handles its own flow control for when it's started
       consumer.setStarted(true);
-
       consumer.setProtocolContext(protonSender);
 
       return consumer;
-   }
-
-   private int getPriority(Map<Symbol, Object> properties) {
-      Number value = properties == null ? null : (Number) properties.get(PRIORITY);
-      return value == null ? ActiveMQDefaultConfiguration.getDefaultConsumerPriority() : value.intValue();
    }
 
    public void startSender(Object brokerConsumer) throws Exception {
@@ -259,15 +297,32 @@ public class AMQPSessionCallback implements SessionCallback {
    }
 
    public void createTemporaryQueue(SimpleString queueName, RoutingType routingType) throws Exception {
-      createTemporaryQueue(queueName, queueName, routingType, null);
+      createTemporaryQueue(queueName, queueName, routingType, null, null);
+   }
+
+   public void createTemporaryQueue(SimpleString queueName, RoutingType routingType, Integer maxConsumers) throws Exception {
+      createTemporaryQueue(queueName, queueName, routingType, null, maxConsumers);
    }
 
    public void createTemporaryQueue(SimpleString address,
                                     SimpleString queueName,
                                     RoutingType routingType,
                                     SimpleString filter) throws Exception {
+      createTemporaryQueue(address, queueName, routingType, filter, null);
+   }
+
+   public void createTemporaryQueue(SimpleString address,
+                                    SimpleString queueName,
+                                    RoutingType routingType,
+                                    SimpleString filter,
+                                    Integer maxConsumers) throws Exception {
       try {
-         serverSession.createQueue(new QueueConfiguration(queueName).setAddress(address).setRoutingType(routingType).setFilterString(filter).setTemporary(true).setDurable(false));
+         serverSession.createQueue(QueueConfiguration.of(queueName).setAddress(address)
+                                                                    .setRoutingType(routingType)
+                                                                    .setFilterString(filter)
+                                                                    .setTemporary(true)
+                                                                    .setDurable(false)
+                                                                    .setMaxConsumers(maxConsumers));
       } catch (ActiveMQSecurityException se) {
          throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.securityErrorCreatingTempDestination(se.getMessage());
       }
@@ -278,7 +333,7 @@ public class AMQPSessionCallback implements SessionCallback {
                                           SimpleString queueName,
                                           SimpleString filter) throws Exception {
       try {
-         serverSession.createQueue(new QueueConfiguration(queueName).setAddress(address).setRoutingType(routingType).setFilterString(filter).setMaxConsumers(1));
+         serverSession.createQueue(QueueConfiguration.of(queueName).setAddress(address).setRoutingType(routingType).setFilterString(filter).setMaxConsumers(1));
       } catch (ActiveMQSecurityException se) {
          throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.securityErrorCreatingConsumer(se.getMessage());
       }
@@ -289,7 +344,7 @@ public class AMQPSessionCallback implements SessionCallback {
                                         SimpleString queueName,
                                         SimpleString filter) throws Exception {
       try {
-         serverSession.createSharedQueue(new QueueConfiguration(queueName).setAddress(address).setRoutingType(routingType).setFilterString(filter));
+         serverSession.createSharedQueue(QueueConfiguration.of(queueName).setAddress(address).setRoutingType(routingType).setFilterString(filter));
       } catch (ActiveMQQueueExistsException alreadyExists) {
          // nothing to be done.. just ignore it. if you have many consumers all doing the same another one probably already done it
       } catch (ActiveMQSecurityException se) {
@@ -302,7 +357,7 @@ public class AMQPSessionCallback implements SessionCallback {
                                          SimpleString queueName,
                                          SimpleString filter) throws Exception {
       try {
-         serverSession.createSharedQueue(new QueueConfiguration(queueName).setAddress(address).setRoutingType(routingType).setFilterString(filter).setDurable(false));
+         serverSession.createSharedQueue(QueueConfiguration.of(queueName).setAddress(address).setRoutingType(routingType).setFilterString(filter).setDurable(false));
       } catch (ActiveMQSecurityException se) {
          throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.securityErrorCreatingConsumer(se.getMessage());
       } catch (ActiveMQQueueExistsException e) {
@@ -340,11 +395,11 @@ public class AMQPSessionCallback implements SessionCallback {
    }
 
    public QueueQueryResult queueQuery(SimpleString queueName, RoutingType routingType, boolean autoCreate, SimpleString filter) throws Exception {
-      return queueQuery(new QueueConfiguration(queueName).setRoutingType(routingType).setFilterString(filter), autoCreate);
+      return queueQuery(QueueConfiguration.of(queueName).setRoutingType(routingType).setFilterString(filter), autoCreate);
    }
 
    public boolean checkAddressAndAutocreateIfPossible(SimpleString address, RoutingType routingType) throws Exception {
-      AutoCreateResult autoCreateResult = serverSession.checkAutoCreate(new QueueConfiguration(address).setRoutingType(routingType));
+      AutoCreateResult autoCreateResult = serverSession.checkAutoCreate(QueueConfiguration.of(address).setRoutingType(routingType));
       return autoCreateResult != AutoCreateResult.NOT_FOUND;
    }
 
@@ -352,12 +407,7 @@ public class AMQPSessionCallback implements SessionCallback {
                                           RoutingType routingType,
                                           boolean autoCreate) throws Exception {
 
-      AddressQueryResult addressQueryResult = addressQueryCache.getResult(addressName);
-      if (addressQueryResult != null) {
-         return addressQueryResult;
-      }
-
-      addressQueryResult = serverSession.executeAddressQuery(addressName);
+      AddressQueryResult addressQueryResult = serverSession.executeAddressQuery(addressName);
 
       if (!addressQueryResult.isExists() && addressQueryResult.isAutoCreateAddresses() && autoCreate) {
          try {
@@ -365,10 +415,10 @@ public class AMQPSessionCallback implements SessionCallback {
          } catch (ActiveMQQueueExistsException e) {
             // The queue may have been created by another thread in the mean time.  Catch and do nothing.
          }
+
          addressQueryResult = serverSession.executeAddressQuery(addressName);
       }
 
-      addressQueryCache.setResult(addressName, addressQueryResult);
       return addressQueryResult;
    }
 

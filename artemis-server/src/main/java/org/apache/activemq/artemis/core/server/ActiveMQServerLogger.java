@@ -30,6 +30,7 @@ import io.netty.channel.Channel;
 import org.apache.activemq.artemis.api.core.ActiveMQExceptionType;
 import org.apache.activemq.artemis.api.core.Pair;
 import org.apache.activemq.artemis.api.core.SimpleString;
+import org.apache.activemq.artemis.api.core.management.CoreNotificationType;
 import org.apache.activemq.artemis.core.client.impl.ServerLocatorInternal;
 import org.apache.activemq.artemis.core.config.Configuration;
 import org.apache.activemq.artemis.core.io.IOCallback;
@@ -44,7 +45,7 @@ import org.apache.activemq.artemis.core.server.routing.targets.Target;
 import org.apache.activemq.artemis.core.server.cluster.Bridge;
 import org.apache.activemq.artemis.core.server.cluster.impl.BridgeImpl;
 import org.apache.activemq.artemis.core.server.cluster.impl.ClusterConnectionImpl;
-import org.apache.activemq.artemis.core.server.cluster.qourum.ServerConnectVote;
+import org.apache.activemq.artemis.core.server.cluster.quorum.ServerConnectVote;
 import org.apache.activemq.artemis.core.server.impl.ActiveMQServerImpl;
 import org.apache.activemq.artemis.core.server.impl.ServerSessionImpl;
 import org.apache.activemq.artemis.core.server.management.Notification;
@@ -68,7 +69,7 @@ public interface ActiveMQServerLogger {
    @LogMessage(id = 223001, value = "Ignored quorum vote due to quorum reached or vote casted: {}", level = LogMessage.Level.DEBUG)
    void ignoredQuorumVote(ServerConnectVote vote);
 
-   @LogMessage(id = 221000, value = "{} Message Broker is starting with configuration {}", level = LogMessage.Level.INFO)
+   @LogMessage(id = 221000, value = "{} message broker is starting with configuration {}", level = LogMessage.Level.INFO)
    void serverStarting(String type, Configuration configuration);
 
    @LogMessage(id = 221001, value = "Apache ActiveMQ Artemis Message Broker version {} [{}, nodeID={}] {}", level = LogMessage.Level.INFO)
@@ -152,13 +153,13 @@ public interface ActiveMQServerLogger {
    @LogMessage(id = 221027, value = "Bridge {} is connected", level = LogMessage.Level.INFO)
    void bridgeConnected(BridgeImpl name);
 
-   @LogMessage(id = 221028, value = "Bridge is stopping, will not retry", level = LogMessage.Level.INFO)
-   void bridgeStopping();
+   @LogMessage(id = 221028, value = "Bridge is {}, will not retry", level = LogMessage.Level.INFO)
+   void bridgeWillNotRetry(String operation);
 
-   @LogMessage(id = 221029, value = "stopped bridge {}", level = LogMessage.Level.INFO)
+   @LogMessage(id = 221029, value = "Stopped bridge {}", level = LogMessage.Level.INFO)
    void bridgeStopped(String name);
 
-   @LogMessage(id = 221030, value = "paused bridge {}", level = LogMessage.Level.INFO)
+   @LogMessage(id = 221030, value = "Paused bridge {}", level = LogMessage.Level.INFO)
    void bridgePaused(String name);
 
    @LogMessage(id = 221031, value = "backup announced", level = LogMessage.Level.INFO)
@@ -197,8 +198,8 @@ public interface ActiveMQServerLogger {
    @LogMessage(id = 221041, value = "Cannot find queue {} while reloading PAGE_CURSOR_COMPLETE, deleting record now", level = LogMessage.Level.INFO)
    void cantFindQueueOnPageComplete(long queueID);
 
-   @LogMessage(id = 221042, value = "Bridge {} timed out waiting for the completion of {} messages, we will just shutdown the bridge after 10 seconds wait", level = LogMessage.Level.INFO)
-   void timedOutWaitingCompletions(String bridgeName, long numberOfMessages);
+   @LogMessage(id = 221042, value = "{} bridge {} timed out waiting for the send acknowledgement of {} messages. Messages may be duplicated between the bridge's source and the target.", level = LogMessage.Level.INFO)
+   void timedOutWaitingForSendAcks(String operation, String bridgeName, long numberOfMessages);
 
    @LogMessage(id = 221043, value = "Protocol module found: [{}]. Adding protocol support for: {}", level = LogMessage.Level.INFO)
    void addingProtocolSupport(String moduleName, String protocolKey);
@@ -511,7 +512,7 @@ public interface ActiveMQServerLogger {
    @LogMessage(id = 222062, value = "Cleared up resources for session {}", level = LogMessage.Level.WARN)
    void clearingUpSession(String name);
 
-   @LogMessage(id = 222063, value = "Error processing IOCallback code = {} message = {}", level = LogMessage.Level.WARN)
+   @LogMessage(id = 222063, value = "Error processing IOCallback; code = {}, message = {}", level = LogMessage.Level.WARN)
    void errorProcessingIOCallback(Integer errorCode, String errorMessage);
 
    @LogMessage(id = 222065, value = "Client is not being consistent on the request versioning. It just sent a version id={} while it informed {} previously", level = LogMessage.Level.DEBUG)
@@ -553,8 +554,8 @@ public interface ActiveMQServerLogger {
    @LogMessage(id = 222079, value = "The following keys are invalid for configuring the acceptor: {} the acceptor will not be started.", level = LogMessage.Level.WARN)
    void invalidAcceptorKeys(String s);
 
-   @LogMessage(id = 222080, value = "Error instantiating remoting acceptor {}", level = LogMessage.Level.WARN)
-   void errorCreatingAcceptor(String factoryClassName, Exception e);
+   @LogMessage(id = 222080, value = "Error creating acceptor: {}", level = LogMessage.Level.WARN)
+   void errorCreatingAcceptor(String name, Exception e);
 
    @LogMessage(id = 222081, value = "Timed out waiting for remoting thread pool to terminate", level = LogMessage.Level.WARN)
    void timeoutRemotingThreadPool();
@@ -625,8 +626,8 @@ public interface ActiveMQServerLogger {
    @LogMessage(id = 222103, value = "transaction with xid {} timed out", level = LogMessage.Level.WARN)
    void timedOutXID(Xid xid);
 
-   @LogMessage(id = 222104, value = "IO Error completing the transaction, code = {}, message = {}", level = LogMessage.Level.WARN)
-   void ioErrorOnTX(Integer errorCode, String errorMessage);
+   @LogMessage(id = 222104, value = "IO Error completing transaction {}; code = {}, message = {}", level = LogMessage.Level.WARN)
+   void ioErrorOnTX(String op, Integer errorCode, String errorMessage);
 
    @LogMessage(id = 222106, value = "Replacing incomplete LargeMessage with ID={}", level = LogMessage.Level.WARN)
    void replacingIncompleteLargeMessage(Long messageID);
@@ -789,8 +790,8 @@ public interface ActiveMQServerLogger {
    @LogMessage(id = 222159, value = "unable to send notification when broadcast group is stopped", level = LogMessage.Level.WARN)
    void broadcastBridgeStoppedError(Exception e);
 
-   @LogMessage(id = 222160, value = "unable to send notification when broadcast group is stopped", level = LogMessage.Level.WARN)
-   void notificationBridgeStoppedError(Exception e);
+   @LogMessage(id = 222160, value = "unable to send notification for bridge {}: {}", level = LogMessage.Level.WARN)
+   void notificationBridgeError(String bridge, CoreNotificationType type, Exception e);
 
    @LogMessage(id = 222161, value = "Group Handler timed-out waiting for sendCondition", level = LogMessage.Level.WARN)
    void groupHandlerSendTimeout();
@@ -1069,8 +1070,8 @@ public interface ActiveMQServerLogger {
    @LogMessage(id = 222255, value = "Unable to calculate file store usage", level = LogMessage.Level.WARN)
    void unableToCalculateFileStoreUsage(Exception e);
 
-   @LogMessage(id = 222256, value = "Failed to unregister acceptors", level = LogMessage.Level.WARN)
-   void failedToUnregisterAcceptors(Exception e);
+   @LogMessage(id = 222256, value = "Failed to unregister acceptor: {}", level = LogMessage.Level.WARN)
+   void failedToUnregisterAcceptor(String acceptor, Exception e);
 
    @LogMessage(id = 222257, value = "Failed to decrement message reference count", level = LogMessage.Level.WARN)
    void failedToDecrementMessageReferenceCount(Exception e);
@@ -1201,7 +1202,7 @@ public interface ActiveMQServerLogger {
    void failedToDealWithObjectProperty(SimpleString property, String exceptionMessage);
 
    @LogMessage(id = 222303, value = "Redistribution by {} of messageID = {} failed", level = LogMessage.Level.WARN)
-   void errorRedistributing(String queueName, long m, Throwable t);
+   void errorRedistributing(String queueName, String m, Throwable t);
 
    @LogMessage(id = 222304, value = "Unable to load message from journal", level = LogMessage.Level.WARN)
    void unableToLoadMessageFromJournal(Throwable t);
@@ -1302,8 +1303,8 @@ public interface ActiveMQServerLogger {
    @LogMessage(id = 224030, value = "Could not cancel reference {}", level = LogMessage.Level.ERROR)
    void errorCancellingRefOnBridge(MessageReference ref2, Exception e);
 
-   @LogMessage(id = 224032, value = "Failed to pause bridge", level = LogMessage.Level.ERROR)
-   void errorPausingBridge(Exception e);
+   @LogMessage(id = 224032, value = "Failed to pause bridge: {}", level = LogMessage.Level.ERROR)
+   void errorPausingBridge(String bridgeName, Exception e);
 
    @LogMessage(id = 224033, value = "Failed to broadcast connector configs", level = LogMessage.Level.ERROR)
    void errorBroadcastingConnectorConfigs(Exception e);
@@ -1602,4 +1603,22 @@ public interface ActiveMQServerLogger {
 
    @LogMessage(id = 224133, value = "{} orphaned page transactions have been removed", level = LogMessage.Level.INFO)
    void cleaningOrphanedTXCleanup(long numberOfPageTx);
+
+   @LogMessage(id = 224134, value = "Connection closed with failedOver={}", level = LogMessage.Level.INFO)
+   void bridgeConnectionClosed(Boolean failedOver);
+
+   @LogMessage(id = 224135, value = "nodeID {} is closing. Topology update ignored", level = LogMessage.Level.INFO)
+   void nodeLeavingCluster(String nodeID);
+
+   @LogMessage(id = 224136, value = "Skipping correlation ID when converting message to OpenWire since byte[] value is not valid UTF-8: {}", level = LogMessage.Level.WARN)
+   void unableToDecodeCorrelationId(String message);
+
+   @LogMessage(id = 224137, value = "Skipping SSL auto reload for sources of store {} because of {}", level = LogMessage.Level.WARN)
+   void skipSSLAutoReloadForSourcesOfStore(String storePath, String reason);
+
+   @LogMessage(id = 224138, value = "Error Registering DuplicateCacheSize on namespace {}", level = LogMessage.Level.WARN)
+   void errorRegisteringDuplicateCacheSize(String address, Exception reason);
+
+   @LogMessage(id = 224139, value = "Failed to stop bridge: {}", level = LogMessage.Level.ERROR)
+   void errorStoppingBridge(String bridgeName, Exception e);
 }

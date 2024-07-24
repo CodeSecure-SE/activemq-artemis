@@ -59,7 +59,7 @@ import org.apache.qpid.proton.engine.Sender;
  */
 public final class AMQPFederationQueueSenderController extends AMQPFederationBaseSenderController {
 
-   public AMQPFederationQueueSenderController(AMQPSessionContext session) {
+   public AMQPFederationQueueSenderController(AMQPSessionContext session) throws ActiveMQAMQPException {
       super(session);
    }
 
@@ -72,49 +72,14 @@ public final class AMQPFederationQueueSenderController extends AMQPFederationBas
       final Connection protonConnection = sender.getSession().getConnection();
       final org.apache.qpid.proton.engine.Record attachments = protonConnection.attachments();
 
-      if (attachments.get(FEDERATION_INSTANCE_RECORD, AMQPFederation.class) == null) {
+      AMQPFederation federation = attachments.get(FEDERATION_INSTANCE_RECORD, AMQPFederation.class);
+
+      if (federation == null) {
          throw new ActiveMQAMQPIllegalStateException("Cannot create a federation link from non-federation connection");
       }
 
       if (source == null) {
          throw new ActiveMQAMQPNotImplementedException("Null source lookup not supported on federation links.");
-      }
-
-      // An queue receiver may supply a filter if the queue being federated had a filter attached
-      // to it at creation, this ensures that we only bring back message that match the original
-      // queue filter and not others that would simply increase traffic for no reason.
-      final Map.Entry<Symbol, DescribedType> filter = AmqpSupport.findFilter(source.getFilter(), AmqpSupport.JMS_SELECTOR_FILTER_IDS);
-
-      if (filter != null) {
-         selector = filter.getValue().getDescribed().toString();
-         try {
-            SelectorParser.parse(selector);
-         } catch (FilterException e) {
-            throw new ActiveMQAMQPException(AmqpError.INVALID_FIELD, "Invalid filter", ActiveMQExceptionType.INVALID_FILTER_EXPRESSION);
-         }
-      } else {
-         selector = null;
-      }
-
-      final RoutingType routingType = getRoutingType(source);
-      final SimpleString targetAddress;
-      final SimpleString targetQueue;
-
-      if (CompositeAddress.isFullyQualified(source.getAddress())) {
-         targetAddress = SimpleString.toSimpleString(CompositeAddress.extractAddressName(source.getAddress()));
-         targetQueue = SimpleString.toSimpleString(CompositeAddress.extractQueueName(source.getAddress()));
-      } else {
-         targetAddress = null;
-         targetQueue = SimpleString.toSimpleString(source.getAddress());
-      }
-
-      final QueueQueryResult result = sessionSPI.queueQuery(targetQueue, routingType, false, null);
-      if (!result.isExists()) {
-         throw new ActiveMQAMQPNotFoundException("Queue: '" + targetQueue + "' does not exist");
-      }
-
-      if (targetAddress != null && !result.getAddress().equals(targetAddress)) {
-         throw new ActiveMQAMQPNotFoundException("Queue: '" + targetQueue + "' is not mapped to specified address: " + targetAddress);
       }
 
       // Match the settlement mode of the remote instead of relying on the default of MIXED.
@@ -127,9 +92,60 @@ public final class AMQPFederationQueueSenderController extends AMQPFederationBas
       // indicated it was desired, however unless offered by the remote we cannot use it.
       sender.setDesiredCapabilities(new Symbol[] {AmqpSupport.CORE_MESSAGE_TUNNELING_SUPPORT});
 
+      final RoutingType routingType = getRoutingType(source);
+      final SimpleString targetAddress;
+      final SimpleString targetQueue;
+
+      if (CompositeAddress.isFullyQualified(source.getAddress())) {
+         targetAddress = SimpleString.of(CompositeAddress.extractAddressName(source.getAddress()));
+         targetQueue = SimpleString.of(CompositeAddress.extractQueueName(source.getAddress()));
+      } else {
+         targetAddress = null;
+         targetQueue = SimpleString.of(source.getAddress());
+      }
+
+      final QueueQueryResult result = sessionSPI.queueQuery(targetQueue, routingType, false, null);
+      if (!result.isExists()) {
+         federation.registerMissingQueue(targetQueue.toString());
+         throw new ActiveMQAMQPNotFoundException("Queue: '" + targetQueue + "' does not exist");
+      }
+
+      if (targetAddress != null && !result.getAddress().equals(targetAddress)) {
+         federation.registerMissingQueue(targetQueue.toString());
+         throw new ActiveMQAMQPNotFoundException("Queue: '" + targetQueue + "' is not mapped to specified address: " + targetAddress);
+      }
+
+      // An queue receiver may supply a filter if the queue being federated had a filter attached
+      // to it at creation, this ensures that we only bring back message that match the original
+      // queue filter and not others that would simply increase traffic for no reason.
+      final Map.Entry<Symbol, DescribedType> filter = AmqpSupport.findFilter(source.getFilter(), AmqpSupport.JMS_SELECTOR_FILTER_IDS);
+
+      if (filter != null) {
+         final String filterString = filter.getValue().getDescribed().toString();
+         try {
+            SelectorParser.parse(filterString);
+         } catch (FilterException e) {
+            throw new ActiveMQAMQPException(AmqpError.INVALID_FIELD, "Invalid filter", ActiveMQExceptionType.INVALID_FILTER_EXPRESSION);
+         }
+
+         // No need to apply another filter if the current one on the Queue already matches that.
+         if (result.getFilterString() == null || !filterString.equals(result.getFilterString().toString())) {
+            selector = filterString;
+         } else {
+            selector = null;
+         }
+      } else {
+         selector = null;
+      }
+
       // We need to check that the remote offers its ability to read tunneled core messages and
       // if not we must not send them but instead convert all messages to AMQP messages first.
       tunnelCoreMessages = verifyOfferedCapabilities(sender, AmqpSupport.CORE_MESSAGE_TUNNELING_SUPPORT);
+
+      // Configure an action to register a watcher for this federated queue to be created if it is
+      // removed during the lifetime of the federation receiver, if restored an event will be sent
+      // to the remote to prompt it to create a new receiver.
+      resourceDeletedAction = (e) -> federation.registerMissingQueue(targetQueue.toString());
 
       return (Consumer) sessionSPI.createSender(senderContext, targetQueue, selector, false);
    }

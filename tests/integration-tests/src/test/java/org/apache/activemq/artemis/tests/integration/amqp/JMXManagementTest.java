@@ -16,6 +16,11 @@
  */
 package org.apache.activemq.artemis.tests.integration.amqp;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import org.apache.activemq.artemis.api.core.JsonUtil;
 import org.apache.activemq.artemis.api.core.RoutingType;
 import org.apache.activemq.artemis.api.core.SimpleString;
@@ -32,8 +37,7 @@ import org.apache.qpid.proton.amqp.Binary;
 import org.apache.qpid.proton.amqp.Decimal128;
 import org.apache.qpid.proton.amqp.Decimal32;
 import org.apache.qpid.proton.amqp.Decimal64;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import javax.jms.Connection;
 import javax.jms.MessageConsumer;
@@ -51,7 +55,7 @@ public class JMXManagementTest extends JMSClientTestSupport {
 
    @Test
    public void testListDeliveringMessages() throws Exception {
-      SimpleString queue = new SimpleString(getQueueName());
+      SimpleString queue = SimpleString.of(getQueueName());
 
       Connection connection1 = createConnection();
       Connection connection2 = createConnection();
@@ -131,21 +135,21 @@ public class JMXManagementTest extends JMSClientTestSupport {
          sender.send(message);
          session.commit();
 
-         SimpleString queue = new SimpleString(getQueueName());
+         SimpleString queue = SimpleString.of(getQueueName());
          QueueControl queueControl = createManagementControl(queue, queue);
          String firstMessageAsJSON = queueControl.getFirstMessageAsJSON();
-         Assert.assertNotNull(firstMessageAsJSON);
+         assertNotNull(firstMessageAsJSON);
 
          // Json is still bulky!
-         Assert.assertTrue(firstMessageAsJSON.length() < 1500);
-         Assert.assertFalse(firstMessageAsJSON.contains("NOT_VISIBLE"));
+         assertTrue(firstMessageAsJSON.length() < 1500);
+         assertFalse(firstMessageAsJSON.contains("NOT_VISIBLE"));
 
          // composite data limits
          Map<String, Object>[] result = queueControl.listMessages("");
          assertEquals(1, result.length);
 
          final Map<String, Object> msgMap = result[0];
-         Assert.assertTrue(msgMap.get("TEST_STRING").toString().length() < 512);
+         assertTrue(msgMap.get("TEST_STRING").toString().length() < 512);
 
       } finally {
          connection.close();
@@ -159,7 +163,7 @@ public class JMXManagementTest extends JMSClientTestSupport {
 
       try {
          UUID uuid = UUID.randomUUID();
-         Character character = Character.valueOf('C');
+         Character character = 'C';
          AmqpSession session = connection.createSession();
          AmqpSender sender = session.createSender(getQueueName());
 
@@ -174,18 +178,18 @@ public class JMXManagementTest extends JMSClientTestSupport {
          sender.send(message);
          session.commit();
 
-         SimpleString queue = new SimpleString(getQueueName());
+         SimpleString queue = SimpleString.of(getQueueName());
          QueueControl queueControl = createManagementControl(queue, queue);
          String firstMessageAsJSON = queueControl.getFirstMessageAsJSON();
-         Assert.assertNotNull(firstMessageAsJSON);
+         assertNotNull(firstMessageAsJSON);
 
          JsonObject firstMessageObject = JsonUtil.readJsonArray(firstMessageAsJSON).getJsonObject(0);
 
-         Assert.assertEquals(uuid.toString(), firstMessageObject.getString("TEST_UUID"));
-         Assert.assertEquals(character.toString(), firstMessageObject.getString("TEST_CHAR"));
-         Assert.assertNotNull(firstMessageObject.getJsonNumber("TEST_DECIMAL_32"));
-         Assert.assertNotNull(firstMessageObject.getJsonNumber("TEST_DECIMAL_64"));
-         Assert.assertNotNull(firstMessageObject.getJsonNumber("TEST_DECIMAL_128"));
+         assertEquals(uuid.toString(), firstMessageObject.getString("TEST_UUID"));
+         assertEquals(character.toString(), firstMessageObject.getString("TEST_CHAR"));
+         assertNotNull(firstMessageObject.getJsonNumber("TEST_DECIMAL_32"));
+         assertNotNull(firstMessageObject.getJsonNumber("TEST_DECIMAL_64"));
+         assertNotNull(firstMessageObject.getJsonNumber("TEST_DECIMAL_128"));
       } finally {
          connection.close();
       }
@@ -210,12 +214,12 @@ public class JMXManagementTest extends JMSClientTestSupport {
          sender.send(message);
          session.commit();
 
-         PagingStore targetPagingStore = server.getPagingManager().getPageStore(SimpleString.toSimpleString(getQueueName()));
+         PagingStore targetPagingStore = server.getPagingManager().getPageStore(SimpleString.of(getQueueName()));
          assertNotNull(targetPagingStore);
 
          assertTrue(targetPagingStore.getAddressSize() > 0);
 
-         SimpleString queue = new SimpleString(getQueueName());
+         SimpleString queue = SimpleString.of(getQueueName());
          QueueControl queueControl = createManagementControl(queue, queue);
 
          Wait.assertEquals(2, queueControl::getMessageCount);
@@ -227,10 +231,10 @@ public class JMXManagementTest extends JMSClientTestSupport {
          Wait.assertEquals(1, queueControl::getMessageCount);
 
          Map<String, Object>[] messages = queueControl.listMessages("");
-         Assert.assertEquals(1, messages.length);
+         assertEquals(1, messages.length);
          queueControl.removeMessage((Long) messages[0].get("messageID"));
 
-         Assert.assertEquals(0, queueControl.getMessageCount());
+         assertEquals(0, queueControl.getMessageCount());
          Wait.assertEquals(0L, targetPagingStore::getAddressSize);
 
       } finally {

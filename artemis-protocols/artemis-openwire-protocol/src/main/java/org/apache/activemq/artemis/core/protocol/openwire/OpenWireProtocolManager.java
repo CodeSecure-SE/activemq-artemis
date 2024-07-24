@@ -171,7 +171,7 @@ public class OpenWireProtocolManager  extends AbstractProtocolManager<Command, O
       public boolean selectorAware;
 
       public VirtualTopicConfig(String[] configuration) {
-         filterPathTerminus = Integer.valueOf(configuration[1]);
+         filterPathTerminus = Integer.parseInt(configuration[1]);
          // optional config
          for (int i = 2; i < configuration.length; i++) {
             String[] optionPair = configuration[i].split("=");
@@ -182,7 +182,7 @@ public class OpenWireProtocolManager  extends AbstractProtocolManager<Command, O
       private void consumeOption(String[] optionPair) {
          if (optionPair.length == 2) {
             if (SELECTOR_AWARE_OPTION.equals(optionPair[0])) {
-               selectorAware = Boolean.valueOf(optionPair[1]);
+               selectorAware = Boolean.parseBoolean(optionPair[1]);
             }
          }
       }
@@ -232,6 +232,13 @@ public class OpenWireProtocolManager  extends AbstractProtocolManager<Command, O
 
    @Override
    public void nodeUP(TopologyMember member, boolean last) {
+      if (member.getPrimary() == null) {
+         if (logger.isTraceEnabled()) {
+            logger.trace("{} ignoring nodeUP call due to null primary; topologyMember={}, last={}", this, member, last);
+         }
+         return;
+      }
+
       if (topologyMap.put(member.getNodeId(), member) == null) {
          updateClientClusterInfo();
       }
@@ -482,7 +489,7 @@ public class OpenWireProtocolManager  extends AbstractProtocolManager<Command, O
       final CoreMessageObjectPools objectPools = context.getConnection().getCoreMessageObjectPools();
       final org.apache.activemq.artemis.api.core.Message coreMessage = OpenWireMessageConverter.inbound(advisoryMessage, wireFormat, objectPools);
 
-      final SimpleString address = SimpleString.toSimpleString(topic.getPhysicalName(), objectPools.getAddressStringSimpleStringPool());
+      final SimpleString address = SimpleString.of(topic.getPhysicalName(), objectPools.getAddressStringSimpleStringPool());
       coreMessage.setAddress(address);
       coreMessage.setRoutingType(RoutingType.MULTICAST);
       // follow pattern from management notification to route directly
@@ -659,14 +666,14 @@ public class OpenWireProtocolManager  extends AbstractProtocolManager<Command, O
    @Override
    public void setAnycastPrefix(String anycastPrefix) {
       for (String prefix : anycastPrefix.split(",")) {
-         prefixes.put(SimpleString.toSimpleString(prefix), RoutingType.ANYCAST);
+         prefixes.put(SimpleString.of(prefix), RoutingType.ANYCAST);
       }
    }
 
    @Override
    public void setMulticastPrefix(String multicastPrefix) {
       for (String prefix : multicastPrefix.split(",")) {
-         prefixes.put(SimpleString.toSimpleString(prefix), RoutingType.MULTICAST);
+         prefixes.put(SimpleString.of(prefix), RoutingType.MULTICAST);
       }
    }
 

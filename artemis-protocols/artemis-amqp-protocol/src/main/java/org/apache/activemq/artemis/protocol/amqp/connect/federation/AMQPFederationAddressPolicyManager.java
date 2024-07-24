@@ -23,6 +23,7 @@ import java.lang.invoke.MethodHandles;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.apache.activemq.artemis.api.config.ActiveMQDefaultConfiguration;
 import org.apache.activemq.artemis.api.core.ActiveMQException;
 import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
 import org.apache.activemq.artemis.core.server.Divert;
@@ -31,9 +32,12 @@ import org.apache.activemq.artemis.core.server.impl.AddressInfo;
 import org.apache.activemq.artemis.protocol.amqp.federation.FederationConsumer;
 import org.apache.activemq.artemis.protocol.amqp.federation.FederationConsumerInfo;
 import org.apache.activemq.artemis.protocol.amqp.federation.FederationReceiveFromAddressPolicy;
+import org.apache.activemq.artemis.protocol.amqp.federation.FederationConsumerInfo.Role;
 import org.apache.activemq.artemis.protocol.amqp.federation.internal.FederationAddressPolicyManager;
 import org.apache.activemq.artemis.protocol.amqp.federation.internal.FederationConsumerInternal;
 import org.apache.activemq.artemis.protocol.amqp.federation.internal.FederationGenericConsumerInfo;
+import org.apache.activemq.artemis.protocol.amqp.proton.AMQPSessionContext;
+import org.apache.activemq.artemis.utils.CompositeAddress;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,26 +49,37 @@ public class AMQPFederationAddressPolicyManager extends FederationAddressPolicyM
    private static final Logger logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
    protected final AMQPFederation federation;
-   protected final AMQPFederationConsumerConfiguration configuration;
-
    protected final String remoteQueueFilter;
+
+   protected volatile AMQPFederationConsumerConfiguration configuration;
+   protected volatile AMQPSessionContext session;
 
    public AMQPFederationAddressPolicyManager(AMQPFederation federation, FederationReceiveFromAddressPolicy addressPolicy) throws ActiveMQException {
       super(federation, addressPolicy);
 
       this.federation = federation;
       this.remoteQueueFilter = generateAddressFilter(policy.getMaxHops());
-      this.configuration = new AMQPFederationConsumerConfiguration(federation, policy.getProperties());
+   }
+
+   @Override
+   protected void handlePolicyManagerStarted(FederationReceiveFromAddressPolicy policy) {
+      // Capture state for the current connection on each start of the policy manager.
+      configuration = new AMQPFederationConsumerConfiguration(federation.getConfiguration(), policy.getProperties());
+      session = federation.getSessionContext();
    }
 
    @Override
    protected FederationGenericConsumerInfo createConsumerInfo(AddressInfo address) {
-      return FederationGenericConsumerInfo.build(address.getName().toString(),
-                                                 generateQueueName(address),
-                                                 address.getRoutingType(),
-                                                 remoteQueueFilter,
-                                                 federation,
-                                                 policy);
+      final String addressName = address.getName().toString();
+      final String generatedQueueName = generateQueueName(address);
+
+      return new FederationGenericConsumerInfo(Role.ADDRESS_CONSUMER,
+         addressName,
+         generatedQueueName,
+         address.getRoutingType(),
+         remoteQueueFilter,
+         CompositeAddress.toFullyQualified(addressName, generatedQueueName),
+         ActiveMQDefaultConfiguration.getDefaultConsumerPriority());
    }
 
    protected String generateQueueName(AddressInfo address) {
@@ -81,7 +96,7 @@ public class AMQPFederationAddressPolicyManager extends FederationAddressPolicyM
 
       // Don't initiate anything yet as the caller might need to register error handlers etc
       // before the attach is sent otherwise they could miss the failure case.
-      return new AMQPFederationAddressConsumer(federation, configuration, federation.getSessionContext(), consumerInfo, policy);
+      return new AMQPFederationAddressConsumer(federation, configuration, session, consumerInfo, policy);
    }
 
    @Override
@@ -92,7 +107,7 @@ public class AMQPFederationAddressPolicyManager extends FederationAddressPolicyM
 
       // Address consumers can't pull as we have no real metric to indicate when / how much
       // we should pull so instead we refuse to match if credit set to zero.
-      if (federation.getReceiverCredits() <= 0) {
+      if (configuration.getReceiverCredits() <= 0) {
          logger.debug("Federation address policy rejecting match on {} because credit is set to zero:", addressInfo.getName());
          return false;
       } else {

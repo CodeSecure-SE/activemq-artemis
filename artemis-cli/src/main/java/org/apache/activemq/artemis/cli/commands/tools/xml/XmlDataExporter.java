@@ -184,35 +184,30 @@ public final class XmlDataExporter extends DBOption {
       messageJournal.start();
 
       // Just logging these, no action necessary
-      TransactionFailureCallback transactionFailureCallback = new TransactionFailureCallback() {
-         @Override
-         public void failedTransaction(long transactionID,
-                                       List<RecordInfo> records1,
-                                       List<RecordInfo> recordsToDelete) {
-            StringBuilder message = new StringBuilder();
-            message.append("Encountered failed journal transaction: ").append(transactionID);
-            for (int i = 0; i < records1.size(); i++) {
-               if (i == 0) {
-                  message.append("; Records: ");
-               }
-               message.append(records1.get(i));
-               if (i != (records1.size() - 1)) {
-                  message.append(", ");
-               }
+      TransactionFailureCallback transactionFailureCallback = (transactionID, records1, recordsToDelete) -> {
+         StringBuilder message = new StringBuilder();
+         message.append("Encountered failed journal transaction: ").append(transactionID);
+         for (int i = 0; i < records1.size(); i++) {
+            if (i == 0) {
+               message.append("; Records: ");
             }
-
-            for (int i = 0; i < recordsToDelete.size(); i++) {
-               if (i == 0) {
-                  message.append("; RecordsToDelete: ");
-               }
-               message.append(recordsToDelete.get(i));
-               if (i != (recordsToDelete.size() - 1)) {
-                  message.append(", ");
-               }
+            message.append(records1.get(i));
+            if (i != (records1.size() - 1)) {
+               message.append(", ");
             }
-
-            logger.debug(message.toString());
          }
+
+         for (int i = 0; i < recordsToDelete.size(); i++) {
+            if (i == 0) {
+               message.append("; RecordsToDelete: ");
+            }
+            message.append(recordsToDelete.get(i));
+            if (i != (recordsToDelete.size() - 1)) {
+               message.append(", ");
+            }
+         }
+
+         logger.debug(message.toString());
       };
 
       messageJournal.load(records, preparedTransactions, transactionFailureCallback, false);
@@ -374,7 +369,7 @@ public final class XmlDataExporter extends DBOption {
       xmlWriter.writeStartElement(XmlDataConstants.MESSAGES_PARENT);
 
       if (logInterval > 0) {
-         System.err.println("Processing journal messages");
+         getActionContext().err.println("Processing journal messages");
       }
 
       long msgs = 0;
@@ -385,7 +380,7 @@ public final class XmlDataExporter extends DBOption {
          msgs++;
          if (logInterval > 0) {
             if (msgs % logInterval == 0) {
-               System.err.println("exported " + msgs + " messages from journal");
+               getActionContext().err.println("exported " + msgs + " messages from journal");
             }
          }
       }
@@ -433,7 +428,7 @@ public final class XmlDataExporter extends DBOption {
                      while (iter.hasNext()) {
                         msgs++;
                         if (logInterval > 0 && msgs % logInterval == 0) {
-                           System.err.println("Exported " + msgs + " messages from paging");
+                           getActionContext().err.println("Exported " + msgs + " messages from paging");
                         }
                         PagedMessage message = iter.next();
                         message.initMessage(storageManager);

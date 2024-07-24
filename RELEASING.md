@@ -2,16 +2,16 @@
 
 Things to do before issuing a new release:
 
-* Update docs/user-manual/en/versions.md to include appropriate release notes and upgrade instructions. See previous
+* Update docs/user-manual/en/versions.adoc to include appropriate release notes and upgrade instructions. See previous
   entries for guidance.
 
 * Build the release locally: mvn clean install -Prelease
-1. Check the manuals have been created properly
-2. Check the javadocs are created correctly (including the diagrams)
+   1. Check the manuals have been created properly
+   2. Check the javadocs are created correctly (including the diagrams)
 
 * Test the standalone release (this should be done on windows as well as linux):
-1. Unpack the distribution zip or tar.gz
-2. Start and stop the server
+   1. Unpack the distribution zip or tar.gz
+   2. Start and stop the server
 
 *  Run the examples, from the [development branch](https://github.com/apache/activemq-artemis-examples/tree/development).
 
@@ -309,6 +309,8 @@ cd activemq-website
 ```
 
 **NOTE**: Some of the release scripts use [Python](https://www.python.org/), ensure you have it installed before proceeding.
+Also, the [PyYAML](https://pyyaml.org/wiki/PyYAMLDocumentation) lib is used. Examples for installing that include
+using `dnf install python3-pyyaml` on Fedora, or installing it using Pip by running `pip install pyyaml`.
 
 Once the CDN and Maven Central are up-to-date then update the site as follows:
 
@@ -339,12 +341,13 @@ Once pushed, the changes should be published automatically by the `jekyll_websit
 
 The [examples repo](https://github.com/apache/activemq-artemis-examples) should be updated to reflect the new release and development versions.
 
-Take a fresh clone of the repo and run the provided script, then check the results and push.
+Take a fresh clone of the repo, check out the `development` branch, and run the provided script to update the branches and create a tag, then check the results and push.
 
 ```
 git clone https://gitbox.apache.org/repos/asf/activemq-artemis-examples.git
 
 cd activemq-artemis-examples
+git checkout development
 ./scripts/release/update-branch-versions.sh <release-version> <new-main-snapshot-version>"
 ```
 
@@ -353,12 +356,17 @@ Example from the 2.32.0 release:
 git clone https://gitbox.apache.org/repos/asf/activemq-artemis-examples.git
 
 cd activemq-artemis-examples
+git checkout development
 ./scripts/release/update-branch-versions.sh 2.32.0 2.33.0-SNAPSHOT"
 ```
 
-Check things over and then push the `development` and `main` branches (optionally use your fork, to test things out before pushing to the main examples repo or even to raise PRs).
+Check things over and then push the `development` and `main` branches and the `<release-version>` tag (optionally use your fork, to test things out before pushing to the main examples repo or even to raise PRs).
 
 NOTE: The `main` branch CI build does not build Artemis, so the release must be available on Maven Central before pushing main or the build will fail. The `development` branch will check out the Artemis main branch and build against that, or it can be manually triggered and pointed to e.g a release tag.
+
+```
+git push origin main development <release-version>
+```
 
 ## Upload Docker Images
 

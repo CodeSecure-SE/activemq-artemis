@@ -29,6 +29,7 @@ import org.apache.activemq.artemis.core.protocol.stomp.Stomp.Headers;
 import org.apache.activemq.artemis.core.protocol.stomp.v10.StompFrameHandlerV10;
 import org.apache.activemq.artemis.core.protocol.stomp.v11.StompFrameHandlerV11;
 import org.apache.activemq.artemis.core.protocol.stomp.v12.StompFrameHandlerV12;
+import org.apache.activemq.artemis.core.server.ServerConsumer;
 import org.apache.activemq.artemis.utils.ExecutorFactory;
 
 import static org.apache.activemq.artemis.core.protocol.stomp.ActiveMQStompProtocolMessageBundle.BUNDLE;
@@ -197,7 +198,7 @@ public abstract class VersionedStompFrameHandler {
             message.setRoutingType(routingType);
          }
          message.setTimestamp(timestamp);
-         message.setAddress(SimpleString.toSimpleString(destination));
+         message.setAddress(SimpleString.of(destination));
          StompUtils.copyStandardHeadersFromFrameToMessage(frame, message, getPrefix(frame));
          if (frame.hasHeader(Stomp.Headers.CONTENT_LENGTH)) {
             message.setType(Message.BYTES_TYPE);
@@ -205,7 +206,7 @@ public abstract class VersionedStompFrameHandler {
          } else {
             message.setType(Message.TEXT_TYPE);
             String text = frame.getBody();
-            message.getBodyBuffer().writeNullableSimpleString(SimpleString.toSimpleString(text));
+            message.getBodyBuffer().writeNullableSimpleString(SimpleString.of(text));
          }
 
          connection.sendServerMessage(message, txID);
@@ -260,19 +261,19 @@ public abstract class VersionedStompFrameHandler {
       String selector = frame.getHeader(Stomp.Headers.Subscribe.SELECTOR);
       String ack = frame.getHeader(Stomp.Headers.Subscribe.ACK_MODE);
       String id = frame.getHeader(Stomp.Headers.Subscribe.ID);
-      String durableSubscriptionName = frame.getHeader(Stomp.Headers.Subscribe.DURABLE_SUBSCRIBER_NAME);
+      String durableSubscriptionName = frame.getHeader(Stomp.Headers.Subscribe.DURABLE_SUBSCRIPTION_NAME);
       if (durableSubscriptionName == null) {
-         durableSubscriptionName = frame.getHeader(Stomp.Headers.Subscribe.DURABLE_SUBSCRIPTION_NAME);
-      }
-      if (durableSubscriptionName == null) {
-         durableSubscriptionName = frame.getHeader(Stomp.Headers.Subscribe.ACTIVEMQ_DURABLE_SUBSCRIPTION_NAME);
+         durableSubscriptionName = frame.getHeader(Stomp.Headers.Subscribe.DURABLE_SUBSCRIBER_NAME);
+         if (durableSubscriptionName == null) {
+            durableSubscriptionName = frame.getHeader(Stomp.Headers.Subscribe.ACTIVEMQ_DURABLE_SUBSCRIPTION_NAME);
+         }
       }
       RoutingType routingType = getRoutingType(frame.getHeader(Headers.Subscribe.SUBSCRIPTION_TYPE), frame.getHeader(Headers.Subscribe.DESTINATION));
       boolean noLocal = false;
       if (frame.hasHeader(Stomp.Headers.Subscribe.NO_LOCAL)) {
          noLocal = Boolean.parseBoolean(frame.getHeader(Stomp.Headers.Subscribe.NO_LOCAL));
       } else if (frame.hasHeader(Stomp.Headers.Subscribe.ACTIVEMQ_NO_LOCAL)) {
-         noLocal = Boolean.parseBoolean(frame.getHeader(Stomp.Headers.Subscribe.NO_LOCAL));
+         noLocal = Boolean.parseBoolean(frame.getHeader(Stomp.Headers.Subscribe.ACTIVEMQ_NO_LOCAL));
       }
       Integer consumerWindowSize = null;
       if (frame.hasHeader(Headers.Subscribe.CONSUMER_WINDOW_SIZE)) {
@@ -292,7 +293,7 @@ public abstract class VersionedStompFrameHandler {
       if (destination == null) {
          return null;
       }
-      return connection.getSession().getCoreSession().removePrefix(SimpleString.toSimpleString(destination)).toString();
+      return connection.getSession().getCoreSession().removePrefix(SimpleString.of(destination)).toString();
    }
 
    public String getPrefix(StompFrame request) throws Exception {
@@ -300,7 +301,7 @@ public abstract class VersionedStompFrameHandler {
       if (destination == null) {
          return null;
       }
-      SimpleString prefix = connection.getSession().getCoreSession().getPrefix(SimpleString.toSimpleString(destination));
+      SimpleString prefix = connection.getSession().getCoreSession().getPrefix(SimpleString.of(destination));
       return prefix == null ? null : prefix.toString();
    }
 
@@ -320,7 +321,10 @@ public abstract class VersionedStompFrameHandler {
       return response;
    }
 
-   public StompFrame createMessageFrame(ICoreMessage serverMessage, StompSubscription subscription, int deliveryCount) {
+   public StompFrame createMessageFrame(ICoreMessage serverMessage,
+                                        StompSubscription subscription,
+                                        ServerConsumer consumer,
+                                        int deliveryCount) {
       StompFrame frame = createStompFrame(Stomp.Responses.MESSAGE);
 
       if (subscription.getID() != null) {
@@ -344,7 +348,8 @@ public abstract class VersionedStompFrameHandler {
       }
       frame.setByteBody(data);
 
-      StompUtils.copyStandardHeadersFromMessageToFrame((serverMessage), frame, deliveryCount);
+      frame.addHeader(Stomp.Headers.Message.MESSAGE_ID, new StringBuilder(41).append(consumer.getID()).append(StompSession.MESSAGE_ID_SEPARATOR).append(serverMessage.getMessageID()).toString());
+      StompUtils.copyStandardHeadersFromMessageToFrame(serverMessage, frame, deliveryCount);
 
       return frame;
    }
@@ -372,7 +377,7 @@ public abstract class VersionedStompFrameHandler {
       if (typeHeader != null) {
          routingType = RoutingType.valueOf(typeHeader);
       } else {
-         routingType = connection.getSession().getCoreSession().getRoutingTypeFromPrefix(new SimpleString(destination), null);
+         routingType = connection.getSession().getCoreSession().getRoutingTypeFromPrefix(SimpleString.of(destination), null);
       }
       return routingType;
    }

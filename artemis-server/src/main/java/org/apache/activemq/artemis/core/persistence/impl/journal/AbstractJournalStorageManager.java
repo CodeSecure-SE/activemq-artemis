@@ -132,6 +132,7 @@ import org.apache.activemq.artemis.utils.critical.CriticalMeasure;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.lang.invoke.MethodHandles;
+import java.util.function.Consumer;
 
 /**
  * Controls access to the journals and other storage files such as the ones used to store pages and
@@ -275,10 +276,14 @@ public abstract class AbstractJournalStorageManager extends CriticalComponentImp
       idGenerator = new BatchingIDGenerator(0, CHECKPOINT_BATCH_SIZE, this);
    }
 
-
    @Override
    public long getMaxRecordSize() {
       return messageJournal.getMaxRecordSize();
+   }
+
+   @Override
+   public long getWarningRecordSize() {
+      return messageJournal.getWarningRecordSize();
    }
 
 
@@ -730,18 +735,6 @@ public abstract class AbstractJournalStorageManager extends CriticalComponentImp
          messageJournal.tryAppendUpdateRecord(ref.getMessage().getMessageID(), JournalRecordIds.UPDATE_DELIVERY_COUNT, updateInfo, syncNonTransactional, true, this::messageUpdateCallback, getContext(syncNonTransactional));
       }
    }
-
-   @Override
-   public void storeAddressSetting(PersistedAddressSetting addressSetting) throws Exception {
-      deleteAddressSetting(addressSetting.getAddressMatch());
-      try (ArtemisCloseable lock = closeableReadLock()) {
-         long id = idGenerator.generateID();
-         addressSetting.setStoreId(id);
-         bindingsJournal.appendAddRecord(id, JournalRecordIds.ADDRESS_SETTING_RECORD, addressSetting, true);
-         mapPersistedAddressSettings.put(addressSetting.getAddressMatch(), addressSetting);
-      }
-   }
-
    @Override
    public void storeAddressSetting(PersistedAddressSettingJSON addressSetting) throws Exception {
       deleteAddressSetting(addressSetting.getAddressMatch());
@@ -756,6 +749,11 @@ public abstract class AbstractJournalStorageManager extends CriticalComponentImp
    @Override
    public List<AbstractPersistedAddressSetting> recoverAddressSettings() throws Exception {
       return new ArrayList<>(mapPersistedAddressSettings.values());
+   }
+
+   @Override
+   public AbstractPersistedAddressSetting recoverAddressSettings(SimpleString address) {
+      return mapPersistedAddressSettings.get(address);
    }
 
    @Override
@@ -978,7 +976,8 @@ public abstract class AbstractJournalStorageManager extends CriticalComponentImp
                                                     final Set<Pair<Long, Long>> pendingLargeMessages,
                                                     final Set<Long> storedLargeMessages,
                                                     List<PageCountPending> pendingNonTXPageCounter,
-                                                    final JournalLoader journalLoader) throws Exception {
+                                                    final JournalLoader journalLoader,
+                                                    final List<Consumer<RecordInfo>> journalRecordsListener) throws Exception {
       SparseArrayLinkedList<RecordInfo> records = new SparseArrayLinkedList<>();
 
       List<PreparedTransactionInfo> preparedTransactions = new ArrayList<>();
@@ -1324,7 +1323,10 @@ public abstract class AbstractJournalStorageManager extends CriticalComponentImp
                   }
 
                   default: {
-                     throw new IllegalStateException("Invalid record type " + recordType);
+                     logger.debug("Extra record type {}", record.userRecordType);
+                     if (journalRecordsListener != null) {
+                        journalRecordsListener.forEach(f -> f.accept(record));
+                     }
                   }
                }
             } catch (RuntimeException e) {
@@ -1785,12 +1787,7 @@ public abstract class AbstractJournalStorageManager extends CriticalComponentImp
       }
 
       final CountDownLatch latch = new CountDownLatch(1);
-      executor.execute(new Runnable() {
-         @Override
-         public void run() {
-            latch.countDown();
-         }
-      });
+      executor.execute(latch::countDown);
 
       latch.await(30, TimeUnit.SECONDS);
 

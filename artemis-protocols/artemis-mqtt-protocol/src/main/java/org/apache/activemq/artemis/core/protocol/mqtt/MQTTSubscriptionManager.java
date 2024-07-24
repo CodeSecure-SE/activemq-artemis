@@ -28,7 +28,6 @@ import io.netty.handler.codec.mqtt.MqttTopicSubscription;
 import org.apache.activemq.artemis.api.core.ActiveMQQueueExistsException;
 import org.apache.activemq.artemis.api.core.ActiveMQSecurityException;
 import org.apache.activemq.artemis.api.core.FilterConstants;
-import org.apache.activemq.artemis.api.core.Pair;
 import org.apache.activemq.artemis.api.core.QueueConfiguration;
 import org.apache.activemq.artemis.api.core.RoutingType;
 import org.apache.activemq.artemis.api.core.SimpleString;
@@ -40,7 +39,6 @@ import org.apache.activemq.artemis.core.server.impl.AddressInfo;
 import org.apache.activemq.artemis.utils.CompositeAddress;
 
 import static org.apache.activemq.artemis.core.protocol.mqtt.MQTTUtil.DOLLAR;
-import static org.apache.activemq.artemis.core.protocol.mqtt.MQTTUtil.SLASH;
 import static org.apache.activemq.artemis.reader.MessageUtil.CONNECTION_ID_PROPERTY_NAME_STRING;
 
 public class MQTTSubscriptionManager {
@@ -87,14 +85,14 @@ public class MQTTSubscriptionManager {
 
       StringBuilder messageFilter = new StringBuilder(baseFilter);
       messageFilter.append(")");
-      this.messageFilter = new SimpleString(messageFilter.toString());
+      this.messageFilter = SimpleString.of(messageFilter.toString());
 
       // [MQTT-4.7.2-1]
       StringBuilder messageFilterNoDollar = new StringBuilder(baseFilter);
       messageFilterNoDollar.append(" OR ");
       messageFilterNoDollar.append("(").append(FilterConstants.ACTIVEMQ_ADDRESS).append(" LIKE '").append(DOLLAR).append("%')");
       messageFilterNoDollar.append(")");
-      this.messageFilterNoDollar = new SimpleString(messageFilterNoDollar.toString());
+      this.messageFilterNoDollar = SimpleString.of(messageFilterNoDollar.toString());
    }
 
    synchronized void start() throws Exception {
@@ -106,11 +104,11 @@ public class MQTTSubscriptionManager {
    private void addSubscription(MqttTopicSubscription subscription, Integer subscriptionIdentifier, boolean initialStart) throws Exception {
       String rawTopicName = CompositeAddress.extractAddressName(subscription.topicName());
       String parsedTopicName = MQTTUtil.decomposeSharedSubscriptionTopicFilter(rawTopicName).getB();
-      int qos = subscription.qualityOfService().value();
-      String coreAddress = MQTTUtil.convertMqttTopicFilterToCore(parsedTopicName, session.getWildcardConfiguration());
-      String coreQueue = getQueueNameForTopic(rawTopicName).toString();
+      boolean isFullyQualified = CompositeAddress.isFullyQualified(subscription.topicName());
 
-      Queue q = createQueueForSubscription(coreAddress, coreQueue);
+      Queue q = createQueueForSubscription(rawTopicName, parsedTopicName, isFullyQualified);
+
+      int qos = subscription.qualityOfService().value();
 
       try {
          if (initialStart) {
@@ -140,16 +138,6 @@ public class MQTTSubscriptionManager {
       }
    }
 
-   private String parseTopicName(String rawTopicName) {
-      String parsedTopicName = rawTopicName;
-
-      // if using a shared subscription then parse
-      if (rawTopicName.startsWith(MQTTUtil.SHARED_SUBSCRIPTION_PREFIX)) {
-         parsedTopicName = rawTopicName.substring(rawTopicName.indexOf(SLASH, rawTopicName.indexOf(SLASH) + 1) + 1);
-      }
-      return parsedTopicName;
-   }
-
    synchronized void stop() throws Exception {
       for (ServerConsumer consumer : consumers.values()) {
          consumer.setStarted(false);
@@ -159,17 +147,20 @@ public class MQTTSubscriptionManager {
       }
    }
 
-   private Queue createQueueForSubscription(String address, String queueName) throws Exception {
-      // check to see if a subscription queue already exists.
-      Queue q = session.getServer().locateQueue(queueName);
+   private Queue createQueueForSubscription(String rawTopicName, String parsedTopicName, boolean isFullyQualified) throws Exception {
+      String coreAddress = MQTTUtil.getCoreAddressFromMqttTopic(parsedTopicName, session.getWildcardConfiguration());
+      String coreQueue = MQTTUtil.getCoreQueueFromMqttTopic(rawTopicName, session.getState().getClientId(), session.getWildcardConfiguration());
 
-      // The queue does not exist so we need to create it.
+      // check to see if a subscription queue already exists
+      Queue q = session.getServer().locateQueue(coreQueue);
+
+      // the subscription queue does not exist so we need to create it
       if (q == null) {
-         SimpleString sAddress = SimpleString.toSimpleString(address);
+         SimpleString sAddress = SimpleString.of(coreAddress);
 
-         // Check we can auto create queues.
+         // only check if we can auto create queues if it's FQQN
          BindingQueryResult bindingQueryResult = session.getServerSession().executeBindingQuery(sAddress);
-         if (!bindingQueryResult.isAutoCreateQueues()) {
+         if (isFullyQualified && !bindingQueryResult.isAutoCreateQueues()) {
             throw ActiveMQMessageBundle.BUNDLE.noSuchQueue(sAddress);
          }
 
@@ -179,10 +170,9 @@ public class MQTTSubscriptionManager {
             if (!bindingQueryResult.isAutoCreateAddresses()) {
                throw ActiveMQMessageBundle.BUNDLE.addressDoesNotExist(sAddress);
             }
-            addressInfo = session.getServerSession().createAddress(sAddress,
-                                                                   RoutingType.MULTICAST, true);
+            addressInfo = session.getServerSession().createAddress(sAddress, RoutingType.MULTICAST, true);
          }
-         return findOrCreateQueue(bindingQueryResult, addressInfo, queueName);
+         return findOrCreateQueue(bindingQueryResult, addressInfo, coreQueue);
       }
       return q;
    }
@@ -195,7 +185,7 @@ public class MQTTSubscriptionManager {
        */
       boolean durable = session.getVersion() == MQTTVersion.MQTT_5 || (session.getVersion() != MQTTVersion.MQTT_5 && !session.isClean());
       if (addressInfo.getRoutingTypes().contains(RoutingType.MULTICAST)) {
-         return session.getServerSession().createQueue(new QueueConfiguration(queue).setAddress(addressInfo.getName()).setFilterString(getMessageFilter(addressInfo.getName())).setDurable(durable));
+         return session.getServerSession().createQueue(QueueConfiguration.of(queue).setAddress(addressInfo.getName()).setFilterString(getMessageFilter(addressInfo.getName())).setDurable(durable));
       }
 
       if (addressInfo.getRoutingTypes().contains(RoutingType.ANYCAST)) {
@@ -211,7 +201,7 @@ public class MQTTSubscriptionManager {
             return session.getServer().locateQueue(name);
          } else {
             try {
-               return session.getServerSession().createQueue(new QueueConfiguration(addressInfo.getName()).setRoutingType(RoutingType.ANYCAST).setFilterString(getMessageFilter(addressInfo.getName())).setDurable(durable));
+               return session.getServerSession().createQueue(QueueConfiguration.of(addressInfo.getName()).setRoutingType(RoutingType.ANYCAST).setFilterString(getMessageFilter(addressInfo.getName())).setDurable(durable));
             } catch (ActiveMQQueueExistsException e) {
                return session.getServer().locateQueue(addressInfo.getName());
             }
@@ -233,13 +223,13 @@ public class MQTTSubscriptionManager {
       }
    }
 
-   private void createConsumerForSubscriptionQueue(Queue queue, String topic, int qos, boolean noLocal, Long existingConsumerId) throws Exception {
+   private void createConsumerForSubscriptionQueue(Queue queue, String topicFilter, int qos, boolean noLocal, Long existingConsumerId) throws Exception {
       long cid = existingConsumerId != null ? existingConsumerId : session.getServer().getStorageManager().generateID();
 
       // for noLocal support we use the MQTT *client id* rather than the connection ID, but we still use the existing property name
-      ServerConsumer consumer = session.getServerSession().createConsumer(cid, queue.getName(), noLocal ? SimpleString.toSimpleString(CONNECTION_ID_PROPERTY_NAME_STRING + " <> '" + session.getState().getClientId() + "'") : null, false, false, -1);
+      ServerConsumer consumer = session.getServerSession().createConsumer(cid, queue.getName(), noLocal ? SimpleString.of(CONNECTION_ID_PROPERTY_NAME_STRING + " <> '" + session.getState().getClientId() + "'") : null, false, false, -1);
 
-      ServerConsumer existingConsumer = consumers.put(MQTTUtil.decomposeSharedSubscriptionTopicFilter(topic).getB(), consumer);
+      ServerConsumer existingConsumer = consumers.put(topicFilter, consumer);
       if (existingConsumer != null) {
          existingConsumer.setStarted(false);
          existingConsumer.close(false);
@@ -257,7 +247,7 @@ public class MQTTSubscriptionManager {
       synchronized (state) {
          reasonCodes = new short[topics.size()];
          for (int i = 0; i < topics.size(); i++) {
-            if (session.getState().getSubscription(topics.get(i)) == null) {
+            if (state.getSubscription(topics.get(i)) == null) {
                reasonCodes[i] = MQTTReasonCodes.NO_SUBSCRIPTION_EXISTED;
                continue;
             }
@@ -265,14 +255,14 @@ public class MQTTSubscriptionManager {
             short reasonCode = MQTTReasonCodes.SUCCESS;
 
             try {
-               session.getState().removeSubscription(topics.get(i));
+               state.removeSubscription(topics.get(i));
                ServerConsumer removed = consumers.remove(MQTTUtil.decomposeSharedSubscriptionTopicFilter(topics.get(i)).getB());
                if (removed != null) {
                   removed.close(false);
                   consumerQoSLevels.remove(removed.getID());
                }
 
-               SimpleString internalQueueName = SimpleString.toSimpleString(getQueueNameForTopic(topics.get(i)));
+               SimpleString internalQueueName = SimpleString.of(MQTTUtil.getCoreQueueFromMqttTopic(topics.get(i), state.getClientId(), session.getServer().getConfiguration().getWildcardConfiguration()));
                Queue queue = session.getServer().locateQueue(internalQueueName);
                if (queue != null) {
                   if (queue.isConfigurationManaged()) {
@@ -294,17 +284,6 @@ public class MQTTSubscriptionManager {
       }
 
       return reasonCodes;
-   }
-
-   private String getQueueNameForTopic(String topic) {
-      String queueName;
-      if (MQTTUtil.isSharedSubscription(topic)) {
-         Pair<String, String> decomposed = MQTTUtil.decomposeSharedSubscriptionTopicFilter(topic);
-         queueName = decomposed.getA().concat(".").concat(decomposed.getB());
-      } else {
-         queueName = session.getState().getClientId().concat(".").concat(topic);
-      }
-      return MQTTUtil.convertMqttTopicFilterToCore(queueName, session.getWildcardConfiguration());
    }
 
    /**

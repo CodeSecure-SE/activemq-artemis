@@ -29,6 +29,7 @@ import org.apache.activemq.artemis.api.core.ActiveMQException;
 import org.apache.activemq.artemis.api.core.ActiveMQExceptionType;
 import org.apache.activemq.artemis.api.core.Message;
 import org.apache.activemq.artemis.api.core.QueueConfiguration;
+import org.apache.activemq.artemis.api.core.RoutingType;
 import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.api.core.TransportConfiguration;
 import org.apache.activemq.artemis.api.core.client.ClientConsumer;
@@ -244,9 +245,9 @@ public class ClusterConnectionBridge extends BridgeImpl {
             "." +
             clusterConnection.getServer().toString().replaceAll(CompositeAddress.SEPARATOR, "_");
 
-         SimpleString notifQueueName = new SimpleString(qName);
+         SimpleString notifQueueName = SimpleString.of(qName);
 
-         SimpleString filter = new SimpleString("(" + ManagementHelper.HDR_BINDING_TYPE + " <> " + BindingType.DIVERT.toInt() +
+         SimpleString filter = SimpleString.of("(" + ManagementHelper.HDR_BINDING_TYPE + " <> " + BindingType.DIVERT.toInt() +
                                                    " OR "
                                                    + ManagementHelper.HDR_BINDING_TYPE + " IS NULL)" +
                                                    " AND " +
@@ -257,6 +258,8 @@ public class ClusterConnectionBridge extends BridgeImpl {
                                                    CoreNotificationType.BINDING_ADDED +
                                                    "', '" +
                                                    CoreNotificationType.BINDING_REMOVED +
+                                                   "', '" +
+                                                   CoreNotificationType.BINDING_UPDATED +
                                                    "', '" +
                                                    CoreNotificationType.CONSUMER_CREATED +
                                                    "', '" +
@@ -278,7 +281,12 @@ public class ClusterConnectionBridge extends BridgeImpl {
                                                    createPermissiveManagementNotificationToFilter() +
                                                    ")");
 
-         sessionConsumer.createQueue(new QueueConfiguration(notifQueueName).setAddress(managementNotificationAddress).setFilterString(filter).setDurable(false).setTemporary(true));
+         sessionConsumer.createQueue(QueueConfiguration.of(notifQueueName)
+                                        .setAddress(managementNotificationAddress)
+                                        .setFilterString(filter)
+                                        .setDurable(false)
+                                        .setTemporary(true)
+                                        .setRoutingType(RoutingType.MULTICAST));
 
          notifConsumer = sessionConsumer.createConsumer(notifQueueName);
 

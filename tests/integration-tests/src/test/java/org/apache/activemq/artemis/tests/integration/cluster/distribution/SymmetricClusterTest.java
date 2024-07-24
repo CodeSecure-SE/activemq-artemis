@@ -16,17 +16,18 @@
  */
 package org.apache.activemq.artemis.tests.integration.cluster.distribution;
 
+import java.lang.invoke.MethodHandles;
+
 import org.apache.activemq.artemis.api.core.RoutingType;
 import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.core.server.cluster.impl.MessageLoadBalancingType;
 import org.apache.activemq.artemis.core.server.impl.AddressInfo;
 import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
 import org.apache.activemq.artemis.tests.util.ActiveMQTestBase;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import java.lang.invoke.MethodHandles;
 
 /**
  * A SymmetricClusterTest
@@ -38,7 +39,7 @@ public class SymmetricClusterTest extends ClusterTestBase {
    private static final Logger logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
    @Override
-   @Before
+   @BeforeEach
    public void setUp() throws Exception {
       super.setUp();
 
@@ -250,7 +251,7 @@ public class SymmetricClusterTest extends ClusterTestBase {
       }
 
       for (int i = 0; i < 5; i++) {
-         servers[i].addAddressInfo(new AddressInfo(SimpleString.toSimpleString("queues.testaddress"), RoutingType.MULTICAST));
+         servers[i].addAddressInfo(new AddressInfo(SimpleString.of("queues.testaddress"), RoutingType.MULTICAST));
          createQueue(i, "queues.testaddress", "queue0", null, false);
       }
 
@@ -1389,7 +1390,8 @@ public class SymmetricClusterTest extends ClusterTestBase {
       verifyReceiveRoundRobinInSomeOrder(10, 1, 2, 3, 4);
    }
 
-   public void _testStartStopServers() throws Exception {
+   @Test
+   public void testStartStopServers() throws Exception {
       doTestStartStopServers(1, 3000);
    }
 

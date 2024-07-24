@@ -19,7 +19,6 @@ package org.apache.activemq.artemis.tests.integration.stomp.v11;
 import javax.jms.BytesMessage;
 import javax.jms.Message;
 import javax.jms.MessageConsumer;
-import javax.jms.MessageListener;
 import javax.jms.MessageProducer;
 import javax.jms.TextMessage;
 import java.io.IOException;
@@ -42,25 +41,29 @@ import org.apache.activemq.artemis.core.protocol.stomp.v11.StompFrameHandlerV11;
 import org.apache.activemq.artemis.core.remoting.impl.netty.TransportConstants;
 import org.apache.activemq.artemis.core.server.Queue;
 import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
+import org.apache.activemq.artemis.tests.extensions.parameterized.ParameterizedTestExtension;
+import org.apache.activemq.artemis.tests.extensions.parameterized.Parameters;
 import org.apache.activemq.artemis.tests.integration.stomp.StompTestBase;
 import org.apache.activemq.artemis.tests.integration.stomp.util.ClientStompFrame;
 import org.apache.activemq.artemis.tests.integration.stomp.util.StompClientConnection;
 import org.apache.activemq.artemis.tests.integration.stomp.util.StompClientConnectionFactory;
 import org.apache.activemq.artemis.tests.integration.stomp.util.StompClientConnectionV11;
 import org.apache.activemq.artemis.tests.util.Wait;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.TestTemplate;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/*
- *
- */
-@RunWith(Parameterized.class)
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
+@ExtendWith(ParameterizedTestExtension.class)
 public class StompV11Test extends StompTestBase {
 
    private static final Logger logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
@@ -71,13 +74,13 @@ public class StompV11Test extends StompTestBase {
 
    private URI v10Uri;
 
-   @Parameterized.Parameters(name = "{0}")
+   @Parameters(name = "{0}")
    public static Collection<Object[]> data() {
       return Arrays.asList(new Object[][]{{"ws+v11.stomp"}, {"tcp+v11.stomp"}});
    }
 
    @Override
-   @Before
+   @BeforeEach
    public void setUp() throws Exception {
       super.setUp();
       v10Uri = new URI(uri.toString().replace("v11", "v10"));
@@ -85,7 +88,7 @@ public class StompV11Test extends StompTestBase {
    }
 
    @Override
-   @After
+   @AfterEach
    public void tearDown() throws Exception {
       try {
          boolean connected = conn != null && conn.isConnected();
@@ -98,7 +101,7 @@ public class StompV11Test extends StompTestBase {
       }
    }
 
-   @Test
+   @TestTemplate
    public void testConnection() throws Exception {
       server.getSecurityStore().setSecurityEnabled(true);
       StompClientConnection connection = StompClientConnectionFactory.createClientConnection(v10Uri);
@@ -156,7 +159,7 @@ public class StompV11Test extends StompTestBase {
       }
    }
 
-   @Test
+   @TestTemplate
    public void testNegotiation() throws Exception {
       // case 1 accept-version absent. It is a 1.0 connect
       ClientStompFrame frame = conn.createFrame(Stomp.Commands.CONNECT)
@@ -169,7 +172,7 @@ public class StompV11Test extends StompTestBase {
       assertEquals(Stomp.Responses.CONNECTED, reply.getCommand());
 
       //reply headers: version, session, server
-      assertEquals(null, reply.getHeader("version"));
+      assertNull(reply.getHeader("version"));
 
       conn.disconnect();
 
@@ -240,7 +243,7 @@ public class StompV11Test extends StompTestBase {
 
    }
 
-   @Test
+   @TestTemplate
    public void testServerFrame() throws Exception {
       { // the default case
          ClientStompFrame frame = conn.connect(defUser, defPass);
@@ -267,7 +270,7 @@ public class StompV11Test extends StompTestBase {
       }
    }
 
-   @Test
+   @TestTemplate
    public void testSendAndReceive() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -308,7 +311,7 @@ public class StompV11Test extends StompTestBase {
       newConn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testHeaderContentType() throws Exception {
       conn.connect(defUser, defPass);
       send(conn, getQueuePrefix() + getQueueName(), "application/xml", "Hello World 1!");
@@ -333,7 +336,7 @@ public class StompV11Test extends StompTestBase {
       newConn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testHeaderContentLength() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -368,7 +371,7 @@ public class StompV11Test extends StompTestBase {
       newConn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testHeaderEncoding() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -414,7 +417,7 @@ public class StompV11Test extends StompTestBase {
    /**
     * In 1.1, undefined escapes must cause a fatal protocol error.
     */
-   @Test
+   @TestTemplate
    public void testHeaderUndefinedEscape() throws Exception {
       conn.connect(defUser, defPass);
       ClientStompFrame frame = conn.createFrame("SEND");
@@ -441,11 +444,11 @@ public class StompV11Test extends StompTestBase {
       logger.debug("received {}", error);
 
       String desc = "Should have received an ERROR for undefined escape sequence";
-      Assert.assertNotNull(desc, error);
-      Assert.assertEquals(desc, "ERROR", error.getCommand());
+      assertNotNull(error, desc);
+      assertEquals("ERROR", error.getCommand(), desc);
    }
 
-   @Test
+   @TestTemplate
    public void testHeartBeat() throws Exception {
       //no heart beat at all if heat-beat absent
       ClientStompFrame frame = conn.createFrame(Stomp.Commands.CONNECT)
@@ -542,7 +545,7 @@ public class StompV11Test extends StompTestBase {
    }
 
    //server ping
-   @Test
+   @TestTemplate
    public void testHeartBeat2() throws Exception {
       //heart-beat (1,1)
       ClientStompFrame frame = conn.createFrame(Stomp.Commands.CONNECT)
@@ -594,7 +597,7 @@ public class StompV11Test extends StompTestBase {
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSendWithHeartBeatsAndReceive() throws Exception {
       StompClientConnection newConn = null;
       try {
@@ -641,7 +644,7 @@ public class StompV11Test extends StompTestBase {
       }
    }
 
-   @Test
+   @TestTemplate
    public void testSendAndReceiveWithHeartBeats() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -687,7 +690,7 @@ public class StompV11Test extends StompTestBase {
       }
    }
 
-   @Test
+   @TestTemplate
    public void testSendWithHeartBeatsAndReceiveWithHeartBeats() throws Exception {
       StompClientConnection newConn = null;
       try {
@@ -744,7 +747,7 @@ public class StompV11Test extends StompTestBase {
       }
    }
 
-   @Test
+   @TestTemplate
    public void testHeartBeatToTTL() throws Exception {
       ClientStompFrame frame;
       ClientStompFrame reply;
@@ -894,7 +897,7 @@ public class StompV11Test extends StompTestBase {
       }
    }
 
-   @Test
+   @TestTemplate
    public void testHeartBeatToConnectionTTLModifier() throws Exception {
       ClientStompFrame frame;
       ClientStompFrame reply;
@@ -947,7 +950,7 @@ public class StompV11Test extends StompTestBase {
       connection.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testNack() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -968,10 +971,10 @@ public class StompV11Test extends StompTestBase {
       //Nack makes the message be dropped.
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(100);
-      Assert.assertNull(message);
+      assertNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testNackWithWrongSubId() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -996,10 +999,10 @@ public class StompV11Test extends StompTestBase {
       //message should be still there
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(1000);
-      Assert.assertNotNull(message);
+      assertNotNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testNackWithWrongMessageId() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1024,10 +1027,10 @@ public class StompV11Test extends StompTestBase {
       //message should still there
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(1000);
-      Assert.assertNotNull(message);
+      assertNotNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testAck() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1048,10 +1051,10 @@ public class StompV11Test extends StompTestBase {
       //Nack makes the message be dropped.
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(100);
-      Assert.assertNull(message);
+      assertNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testAckWithWrongSubId() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1076,10 +1079,10 @@ public class StompV11Test extends StompTestBase {
       //message should be still there
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(1000);
-      Assert.assertNotNull(message);
+      assertNotNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testAckWithWrongMessageId() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1104,10 +1107,10 @@ public class StompV11Test extends StompTestBase {
       //message should still there
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(1000);
-      Assert.assertNotNull(message);
+      assertNotNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testErrorWithReceipt() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1122,7 +1125,7 @@ public class StompV11Test extends StompTestBase {
       //give it a wrong sub id
       ClientStompFrame ackFrame = conn.createFrame(Stomp.Commands.ACK)
                                       .addHeader(Stomp.Headers.Ack.SUBSCRIPTION, "sub2")
-                                      .addHeader(Stomp.Headers.Message.MESSAGE_ID, messageID)
+                                      .addHeader(Stomp.Headers.Ack.MESSAGE_ID, messageID)
                                       .addHeader(Stomp.Headers.RECEIPT_REQUESTED, "answer-me");
 
       ClientStompFrame error = conn.sendFrame(ackFrame);
@@ -1140,10 +1143,10 @@ public class StompV11Test extends StompTestBase {
       //message should still there
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(1000);
-      Assert.assertNotNull(message);
+      assertNotNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testErrorWithReceipt2() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1155,10 +1158,10 @@ public class StompV11Test extends StompTestBase {
 
       String messageID = frame.getHeader(Stomp.Headers.Message.MESSAGE_ID);
 
-      //give it a wrong sub id
+      //give it a wrong message id
       ClientStompFrame ackFrame = conn.createFrame(Stomp.Commands.ACK)
                                       .addHeader(Stomp.Headers.Ack.SUBSCRIPTION, "sub1")
-                                      .addHeader(Stomp.Headers.Message.MESSAGE_ID, String.valueOf(Long.valueOf(messageID) + 1))
+                                      .addHeader(Stomp.Headers.Ack.MESSAGE_ID, messageID + '1')
                                       .addHeader(Stomp.Headers.RECEIPT_REQUESTED, "answer-me");
 
       ClientStompFrame error = conn.sendFrame(ackFrame);
@@ -1176,10 +1179,10 @@ public class StompV11Test extends StompTestBase {
       //message should still there
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(1000);
-      Assert.assertNotNull(message);
+      assertNotNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testAckModeClient() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1208,10 +1211,10 @@ public class StompV11Test extends StompTestBase {
       //no messages can be received.
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(100);
-      Assert.assertNull(message);
+      assertNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testAckModeClient2() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1243,12 +1246,12 @@ public class StompV11Test extends StompTestBase {
       //no messages can be received.
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(10000);
-      Assert.assertNotNull(message);
+      assertNotNull(message);
       message = consumer.receive(100);
-      Assert.assertNull(message);
+      assertNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testAckModeAuto() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1274,10 +1277,10 @@ public class StompV11Test extends StompTestBase {
       //no messages can be received.
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(100);
-      Assert.assertNull(message);
+      assertNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testAckModeClientIndividual() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1312,16 +1315,16 @@ public class StompV11Test extends StompTestBase {
       TextMessage message = null;
       for (int i = 0; i < num / 2; i++) {
          message = (TextMessage) consumer.receive(1000);
-         Assert.assertNotNull(message);
+         assertNotNull(message);
          logger.debug("Legal: {}", message.getText());
       }
 
       message = (TextMessage) consumer.receive(100);
 
-      Assert.assertNull(message);
+      assertNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testTwoSubscribers() throws Exception {
       conn.connect(defUser, defPass, CLIENT_ID);
 
@@ -1355,7 +1358,7 @@ public class StompV11Test extends StompTestBase {
       newConn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSendAndReceiveOnDifferentConnections() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1377,7 +1380,7 @@ public class StompV11Test extends StompTestBase {
 
    //----------------Note: tests below are adapted from StompTest
 
-   @Test
+   @TestTemplate
    public void testBeginSameTransactionTwice() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1386,10 +1389,10 @@ public class StompV11Test extends StompTestBase {
       beginTransaction(conn, "tx1");
 
       ClientStompFrame f = conn.receiveFrame();
-      Assert.assertTrue(f.getCommand().equals(Stomp.Responses.ERROR));
+      assertTrue(f.getCommand().equals(Stomp.Responses.ERROR));
    }
 
-   @Test
+   @TestTemplate
    public void testBodyWithUTF8() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1401,14 +1404,14 @@ public class StompV11Test extends StompTestBase {
 
       ClientStompFrame frame = conn.receiveFrame();
       logger.debug("{}", frame);
-      Assert.assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
-      Assert.assertNotNull(frame.getHeader(Stomp.Headers.Message.DESTINATION));
-      Assert.assertTrue(frame.getBody().equals(text));
+      assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
+      assertNotNull(frame.getHeader(Stomp.Headers.Message.DESTINATION));
+      assertTrue(frame.getBody().equals(text));
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testClientAckNotPartOfTransaction() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1418,10 +1421,10 @@ public class StompV11Test extends StompTestBase {
 
       ClientStompFrame frame = conn.receiveFrame();
 
-      Assert.assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
-      Assert.assertNotNull(frame.getHeader(Stomp.Headers.Message.DESTINATION));
-      Assert.assertTrue(frame.getBody().equals(getName()));
-      Assert.assertNotNull(frame.getHeader(Stomp.Headers.Message.MESSAGE_ID));
+      assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
+      assertNotNull(frame.getHeader(Stomp.Headers.Message.DESTINATION));
+      assertTrue(frame.getBody().equals(getName()));
+      assertNotNull(frame.getHeader(Stomp.Headers.Message.MESSAGE_ID));
 
       String messageID = frame.getHeader(Stomp.Headers.Message.MESSAGE_ID);
 
@@ -1440,7 +1443,7 @@ public class StompV11Test extends StompTestBase {
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testDisconnectAndError() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1459,29 +1462,26 @@ public class StompV11Test extends StompTestBase {
 
       final CountDownLatch latch = new CountDownLatch(1);
 
-      Thread thr = new Thread() {
-         @Override
-         public void run() {
-            while (latch.getCount() != 0) {
-               try {
-                  send(conn, getQueuePrefix() + getQueueName(), null, "Hello World");
-                  Thread.sleep(500);
-               } catch (InterruptedException e) {
-                  //retry
-               } catch (ClosedChannelException e) {
-                  //ok.
-                  latch.countDown();
-                  break;
-               } catch (IOException e) {
-                  //ok.
-                  latch.countDown();
-                  break;
-               } finally {
-                  conn.destroy();
-               }
+      Thread thr = new Thread(() -> {
+         while (latch.getCount() != 0) {
+            try {
+               send(conn, getQueuePrefix() + getQueueName(), null, "Hello World");
+               Thread.sleep(500);
+            } catch (InterruptedException e) {
+               //retry
+            } catch (ClosedChannelException e) {
+               //ok.
+               latch.countDown();
+               break;
+            } catch (IOException e) {
+               //ok.
+               latch.countDown();
+               break;
+            } finally {
+               conn.destroy();
             }
          }
-      };
+      });
 
       thr.start();
       latch.await(10, TimeUnit.SECONDS);
@@ -1492,10 +1492,10 @@ public class StompV11Test extends StompTestBase {
       }
       thr.join();
 
-      assertTrue("Server failed to disconnect.", count == 0);
+      assertTrue(count == 0, "Server failed to disconnect.");
    }
 
-   @Test
+   @TestTemplate
    public void testDurableSubscriber() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1504,12 +1504,12 @@ public class StompV11Test extends StompTestBase {
       subscribe(conn, "sub1", Stomp.Headers.Subscribe.AckModeValues.CLIENT, getName(), false);
       ClientStompFrame frame = conn.receiveFrame();
 
-      Assert.assertTrue(frame.getCommand().equals(Stomp.Responses.ERROR));
+      assertTrue(frame.getCommand().equals(Stomp.Responses.ERROR));
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testDurableSubscriberWithReconnection() throws Exception {
       conn.connect(defUser, defPass, CLIENT_ID);
 
@@ -1538,18 +1538,18 @@ public class StompV11Test extends StompTestBase {
       // we must have received the message
       frame = conn.receiveFrame();
 
-      Assert.assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
-      Assert.assertNotNull(frame.getHeader(Stomp.Headers.Message.DESTINATION));
-      Assert.assertEquals(getName(), frame.getBody());
+      assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
+      assertNotNull(frame.getHeader(Stomp.Headers.Message.DESTINATION));
+      assertEquals(getName(), frame.getBody());
 
       unsubscribe(conn, "sub1");
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testDurableUnSubscribe() throws Exception {
-      SimpleString queueName = SimpleString.toSimpleString(CLIENT_ID + "." + getName());
+      SimpleString queueName = SimpleString.of(CLIENT_ID + "." + getName());
 
       conn.connect(defUser, defPass, CLIENT_ID);
 
@@ -1561,7 +1561,7 @@ public class StompV11Test extends StompTestBase {
       conn.destroy();
 
       Queue queue = server.locateQueue(queueName);
-      Assert.assertNotNull(queue);
+      assertNotNull(queue);
 
       Wait.assertEquals(0, queue::getConsumerCount, 10_000, 10);
 
@@ -1575,7 +1575,7 @@ public class StompV11Test extends StompTestBase {
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testJMSXGroupIdCanBeSet() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
 
@@ -1589,13 +1589,13 @@ public class StompV11Test extends StompTestBase {
       conn.sendFrame(frame);
 
       TextMessage message = (TextMessage) consumer.receive(1000);
-      Assert.assertNotNull(message);
-      Assert.assertEquals("Hello World", message.getText());
+      assertNotNull(message);
+      assertEquals("Hello World", message.getText());
       // differ from StompConnect
-      Assert.assertEquals("TEST", message.getStringProperty("JMSXGroupID"));
+      assertEquals("TEST", message.getStringProperty("JMSXGroupID"));
    }
 
-   @Test
+   @TestTemplate
    public void testMessagesAreInOrder() throws Exception {
       int ctr = 10;
       String[] data = new String[ctr];
@@ -1613,7 +1613,7 @@ public class StompV11Test extends StompTestBase {
 
       for (int i = 0; i < ctr; ++i) {
          frame = conn.receiveFrame();
-         Assert.assertTrue("Message not in order", frame.getBody().equals(data[i]));
+         assertTrue(frame.getBody().equals(data[i]), "Message not in order");
       }
 
       for (int i = 0; i < ctr; ++i) {
@@ -1623,13 +1623,13 @@ public class StompV11Test extends StompTestBase {
 
       for (int i = 0; i < ctr; ++i) {
          frame = conn.receiveFrame();
-         Assert.assertTrue("Message not in order", frame.getBody().equals(data[i]));
+         assertTrue(frame.getBody().equals(data[i]), "Message not in order");
       }
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSubscribeWithAutoAckAndSelector() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1640,12 +1640,12 @@ public class StompV11Test extends StompTestBase {
 
       ClientStompFrame frame = conn.receiveFrame();
 
-      Assert.assertTrue("Should have received the real message but got: " + frame, frame.getBody().equals("Real message"));
+      assertTrue(frame.getBody().equals("Real message"), "Should have received the real message but got: " + frame);
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testRedeliveryWithClientAck() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1662,11 +1662,11 @@ public class StompV11Test extends StompTestBase {
       // message should be received since message was not acknowledged
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(1000);
-      Assert.assertNotNull(message);
-      Assert.assertTrue(message.getJMSRedelivered());
+      assertNotNull(message);
+      assertTrue(message.getJMSRedelivered());
    }
 
-   @Test
+   @TestTemplate
    public void testSendManyMessages() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
 
@@ -1674,12 +1674,7 @@ public class StompV11Test extends StompTestBase {
 
       int count = 1000;
       final CountDownLatch latch = new CountDownLatch(count);
-      consumer.setMessageListener(new MessageListener() {
-         @Override
-         public void onMessage(Message arg0) {
-            latch.countDown();
-         }
-      });
+      consumer.setMessageListener(arg0 -> latch.countDown());
 
       for (int i = 1; i <= count; i++) {
          send(conn, getQueuePrefix() + getQueueName(), null, "Hello World");
@@ -1690,7 +1685,7 @@ public class StompV11Test extends StompTestBase {
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSendMessage() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
 
@@ -1699,19 +1694,19 @@ public class StompV11Test extends StompTestBase {
       send(conn, getQueuePrefix() + getQueueName(), null, "Hello World");
 
       TextMessage message = (TextMessage) consumer.receive(1000);
-      Assert.assertNotNull(message);
-      Assert.assertEquals("Hello World", message.getText());
+      assertNotNull(message);
+      assertEquals("Hello World", message.getText());
       // Assert default priority 4 is used when priority header is not set
-      Assert.assertEquals("getJMSPriority", 4, message.getJMSPriority());
+      assertEquals(4, message.getJMSPriority(), "getJMSPriority");
 
       // Make sure that the timestamp is valid - should
       // be very close to the current time.
       long tnow = System.currentTimeMillis();
       long tmsg = message.getJMSTimestamp();
-      Assert.assertTrue(Math.abs(tnow - tmsg) < 1000);
+      assertTrue(Math.abs(tnow - tmsg) < 1000);
    }
 
-   @Test
+   @TestTemplate
    public void testSendMessageWithContentLength() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
 
@@ -1727,7 +1722,7 @@ public class StompV11Test extends StompTestBase {
       conn.sendFrame(frame);
 
       BytesMessage message = (BytesMessage) consumer.receive(10000);
-      Assert.assertNotNull(message);
+      assertNotNull(message);
 
       assertEquals(data.length, message.getBodyLength());
       assertEquals(data[0], message.readByte());
@@ -1736,7 +1731,7 @@ public class StompV11Test extends StompTestBase {
       assertEquals(data[3], message.readByte());
    }
 
-   @Test
+   @TestTemplate
    public void testSendMessageWithCustomHeadersAndSelector() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue, "foo = 'abc'");
 
@@ -1751,13 +1746,13 @@ public class StompV11Test extends StompTestBase {
       conn.sendFrame(frame);
 
       TextMessage message = (TextMessage) consumer.receive(1000);
-      Assert.assertNotNull(message);
-      Assert.assertEquals("Hello World", message.getText());
-      Assert.assertEquals("foo", "abc", message.getStringProperty("foo"));
-      Assert.assertEquals("bar", "123", message.getStringProperty("bar"));
+      assertNotNull(message);
+      assertEquals("Hello World", message.getText());
+      assertEquals("abc", message.getStringProperty("foo"), "foo");
+      assertEquals("123", message.getStringProperty("bar"), "bar");
    }
 
-   @Test
+   @TestTemplate
    public void testSendMessageWithLeadingNewLine() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
       Thread.sleep(1000);
@@ -1771,21 +1766,21 @@ public class StompV11Test extends StompTestBase {
       conn.sendWickedFrame(frame);
 
       TextMessage message = (TextMessage) consumer.receive(1000);
-      Assert.assertNotNull(message);
-      Assert.assertEquals("Hello World", message.getText());
+      assertNotNull(message);
+      assertEquals("Hello World", message.getText());
 
       // Make sure that the timestamp is valid - should
       // be very close to the current time.
       long tnow = System.currentTimeMillis();
       long tmsg = message.getJMSTimestamp();
-      Assert.assertTrue(Math.abs(tnow - tmsg) < 1000);
+      assertTrue(Math.abs(tnow - tmsg) < 1000);
 
       assertNull(consumer.receive(100));
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSendMessageWithReceipt() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
 
@@ -1795,19 +1790,19 @@ public class StompV11Test extends StompTestBase {
       send(conn, getQueuePrefix() + getQueueName(), null, "Hello World", true);
 
       TextMessage message = (TextMessage) consumer.receive(1000);
-      Assert.assertNotNull(message);
-      Assert.assertEquals("Hello World", message.getText());
+      assertNotNull(message);
+      assertEquals("Hello World", message.getText());
 
       // Make sure that the timestamp is valid - should
       // be very close to the current time.
       long tnow = System.currentTimeMillis();
       long tmsg = message.getJMSTimestamp();
-      Assert.assertTrue(Math.abs(tnow - tmsg) < 1000);
+      assertTrue(Math.abs(tnow - tmsg) < 1000);
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSendMessageWithStandardHeaders() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
 
@@ -1827,21 +1822,21 @@ public class StompV11Test extends StompTestBase {
       frame = conn.sendFrame(frame);
 
       TextMessage message = (TextMessage) consumer.receive(1000);
-      Assert.assertNotNull(message);
-      Assert.assertEquals("Hello World", message.getText());
-      Assert.assertEquals("JMSCorrelationID", "c123", message.getJMSCorrelationID());
-      Assert.assertEquals("getJMSType", "t345", message.getJMSType());
-      Assert.assertEquals("getJMSPriority", 3, message.getJMSPriority());
-      Assert.assertEquals(javax.jms.DeliveryMode.PERSISTENT, message.getJMSDeliveryMode());
-      Assert.assertEquals("foo", "abc", message.getStringProperty("foo"));
-      Assert.assertEquals("bar", "123", message.getStringProperty("bar"));
+      assertNotNull(message);
+      assertEquals("Hello World", message.getText());
+      assertEquals("c123", message.getJMSCorrelationID(), "JMSCorrelationID");
+      assertEquals("t345", message.getJMSType(), "getJMSType");
+      assertEquals(3, message.getJMSPriority(), "getJMSPriority");
+      assertEquals(javax.jms.DeliveryMode.PERSISTENT, message.getJMSDeliveryMode());
+      assertEquals("abc", message.getStringProperty("foo"), "foo");
+      assertEquals("123", message.getStringProperty("bar"), "bar");
 
-      Assert.assertEquals("JMSXGroupID", "abc", message.getStringProperty("JMSXGroupID"));
+      assertEquals("abc", message.getStringProperty("JMSXGroupID"), "JMSXGroupID");
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSendMessageWithLongHeaders() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
 
@@ -1866,21 +1861,21 @@ public class StompV11Test extends StompTestBase {
       frame = conn.sendFrame(frame);
 
       TextMessage message = (TextMessage) consumer.receive(1000);
-      Assert.assertNotNull(message);
-      Assert.assertEquals("Hello World", message.getText());
-      Assert.assertEquals("JMSCorrelationID", "c123", message.getJMSCorrelationID());
-      Assert.assertEquals("getJMSType", "t345", message.getJMSType());
-      Assert.assertEquals("getJMSPriority", 3, message.getJMSPriority());
-      Assert.assertEquals(javax.jms.DeliveryMode.PERSISTENT, message.getJMSDeliveryMode());
-      Assert.assertEquals("foo", "abc", message.getStringProperty("foo"));
-      Assert.assertEquals("longHeader", 2048, message.getStringProperty("longHeader").length());
+      assertNotNull(message);
+      assertEquals("Hello World", message.getText());
+      assertEquals("c123", message.getJMSCorrelationID(), "JMSCorrelationID");
+      assertEquals("t345", message.getJMSType(), "getJMSType");
+      assertEquals(3, message.getJMSPriority(), "getJMSPriority");
+      assertEquals(javax.jms.DeliveryMode.PERSISTENT, message.getJMSDeliveryMode());
+      assertEquals("abc", message.getStringProperty("foo"), "foo");
+      assertEquals(2048, message.getStringProperty("longHeader").length(), "longHeader");
 
-      Assert.assertEquals("JMSXGroupID", "abc", message.getStringProperty("JMSXGroupID"));
+      assertEquals("abc", message.getStringProperty("JMSXGroupID"), "JMSXGroupID");
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSubscribeToTopic() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1890,9 +1885,9 @@ public class StompV11Test extends StompTestBase {
 
       ClientStompFrame frame = conn.receiveFrame();
 
-      Assert.assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
-      Assert.assertTrue(frame.getHeader(Stomp.Headers.Message.DESTINATION).equals(getTopicPrefix() + getTopicName()));
-      Assert.assertTrue(frame.getBody().equals(getName()));
+      assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
+      assertTrue(frame.getHeader(Stomp.Headers.Message.DESTINATION).equals(getTopicPrefix() + getTopicName()));
+      assertTrue(frame.getBody().equals(getName()));
 
       unsubscribe(conn, "sub1", true);
 
@@ -1904,7 +1899,7 @@ public class StompV11Test extends StompTestBase {
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSubscribeToTopicWithNoLocal() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1921,16 +1916,16 @@ public class StompV11Test extends StompTestBase {
 
       frame = conn.receiveFrame();
 
-      Assert.assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
-      Assert.assertTrue(frame.getHeader(Stomp.Headers.Message.DESTINATION).equals(getTopicPrefix() + getTopicName()));
-      Assert.assertTrue(frame.getBody().equals(getName()));
+      assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
+      assertTrue(frame.getHeader(Stomp.Headers.Message.DESTINATION).equals(getTopicPrefix() + getTopicName()));
+      assertTrue(frame.getBody().equals(getName()));
 
       unsubscribe(conn, "sub1");
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSubscribeWithAutoAck() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1940,19 +1935,19 @@ public class StompV11Test extends StompTestBase {
 
       ClientStompFrame frame = conn.receiveFrame();
 
-      Assert.assertEquals(Stomp.Responses.MESSAGE, frame.getCommand());
-      Assert.assertNotNull(frame.getHeader(Stomp.Headers.Message.DESTINATION));
-      Assert.assertEquals(getName(), frame.getBody());
+      assertEquals(Stomp.Responses.MESSAGE, frame.getCommand());
+      assertNotNull(frame.getHeader(Stomp.Headers.Message.DESTINATION));
+      assertEquals(getName(), frame.getBody());
 
       conn.disconnect();
 
       // message should not be received as it was auto-acked
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(100);
-      Assert.assertNull(message);
+      assertNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testSubscribeWithAutoAckAndBytesMessage() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1969,14 +1964,14 @@ public class StompV11Test extends StompTestBase {
 
       assertEquals("5", frame.getHeader(Stomp.Headers.CONTENT_LENGTH));
 
-      assertEquals(null, frame.getHeader(Stomp.Headers.Message.TYPE));
+      assertNull(frame.getHeader(Stomp.Headers.Message.TYPE));
 
       assertEquals(frame.getBody(), new String(payload, StandardCharsets.UTF_8));
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSubscribeWithClientAck() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -1995,20 +1990,20 @@ public class StompV11Test extends StompTestBase {
       // message should not be received since message was acknowledged by the client
       MessageConsumer consumer = session.createConsumer(queue);
       Message message = consumer.receive(100);
-      Assert.assertNull(message);
+      assertNull(message);
    }
 
-   @Test
+   @TestTemplate
    public void testSubscribeWithClientAckThenConsumingAgainWithAutoAckWithExplicitDisconnect() throws Exception {
       assertSubscribeWithClientAckThenConsumeWithAutoAck(true);
    }
 
-   @Test
+   @TestTemplate
    public void testSubscribeWithClientAckThenConsumingAgainWithAutoAckWithNoDisconnectFrame() throws Exception {
       assertSubscribeWithClientAckThenConsumeWithAutoAck(false);
    }
 
-   @Test
+   @TestTemplate
    public void testSubscribeWithID() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -2018,12 +2013,12 @@ public class StompV11Test extends StompTestBase {
 
       ClientStompFrame frame = conn.receiveFrame();
 
-      Assert.assertTrue(frame.getHeader(Stomp.Headers.Ack.SUBSCRIPTION) != null);
+      assertTrue(frame.getHeader(Stomp.Headers.Ack.SUBSCRIPTION) != null);
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSubscribeWithMessageSentWithProperties() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -2043,22 +2038,22 @@ public class StompV11Test extends StompTestBase {
       producer.send(message);
 
       ClientStompFrame frame = conn.receiveFrame();
-      Assert.assertNotNull(frame);
+      assertNotNull(frame);
 
-      Assert.assertTrue(frame.getHeader("S") != null);
-      Assert.assertTrue(frame.getHeader("n") != null);
-      Assert.assertTrue(frame.getHeader("byte") != null);
-      Assert.assertTrue(frame.getHeader("d") != null);
-      Assert.assertTrue(frame.getHeader("f") != null);
-      Assert.assertTrue(frame.getHeader("i") != null);
-      Assert.assertTrue(frame.getHeader("l") != null);
-      Assert.assertTrue(frame.getHeader("s") != null);
-      Assert.assertEquals("Hello World", frame.getBody());
+      assertTrue(frame.getHeader("S") != null);
+      assertTrue(frame.getHeader("n") != null);
+      assertTrue(frame.getHeader("byte") != null);
+      assertTrue(frame.getHeader("d") != null);
+      assertTrue(frame.getHeader("f") != null);
+      assertTrue(frame.getHeader("i") != null);
+      assertTrue(frame.getHeader("l") != null);
+      assertTrue(frame.getHeader("s") != null);
+      assertEquals("Hello World", frame.getBody());
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSuccessiveTransactionsWithSameID() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
 
@@ -2077,7 +2072,7 @@ public class StompV11Test extends StompTestBase {
       commitTransaction(conn, "tx1");
 
       Message message = consumer.receive(1000);
-      Assert.assertNotNull("Should have received a message", message);
+      assertNotNull(message, "Should have received a message");
 
       // 2nd tx with same tx ID
       beginTransaction(conn, "tx1");
@@ -2092,12 +2087,12 @@ public class StompV11Test extends StompTestBase {
       commitTransaction(conn, "tx1");
 
       message = consumer.receive(1000);
-      Assert.assertNotNull("Should have received a message", message);
+      assertNotNull(message, "Should have received a message");
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testTransactionCommit() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
 
@@ -2121,12 +2116,12 @@ public class StompV11Test extends StompTestBase {
       commitTransaction(conn, "tx1", true);
 
       Message message = consumer.receive(1000);
-      Assert.assertNotNull("Should have received a message", message);
+      assertNotNull(message, "Should have received a message");
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testTransactionRollback() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
 
@@ -2157,13 +2152,13 @@ public class StompV11Test extends StompTestBase {
 
       // only second msg should be received since first msg was rolled back
       TextMessage message = (TextMessage) consumer.receive(1000);
-      Assert.assertNotNull(message);
-      Assert.assertEquals("second message", message.getText());
+      assertNotNull(message);
+      assertEquals("second message", message.getText());
 
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testUnsubscribe() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -2175,7 +2170,7 @@ public class StompV11Test extends StompTestBase {
       // receive message from socket
       ClientStompFrame frame = conn.receiveFrame();
 
-      Assert.assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
+      assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
 
       // remove suscription
       unsubscribe(conn, "sub1", true);
@@ -2190,11 +2185,11 @@ public class StompV11Test extends StompTestBase {
    }
 
 
-   @Test
+   @TestTemplate
    public void testHeartBeat3() throws Exception {
 
       connection.close();
-      Assert.assertEquals(0, server.getRemotingService().getConnections().size());
+      assertEquals(0, server.getRemotingService().getConnections().size());
       ClientStompFrame frame = conn.createFrame("CONNECT");
       frame.addHeader("host", "127.0.0.1");
       frame.addHeader("login", this.defUser);
@@ -2214,7 +2209,7 @@ public class StompV11Test extends StompTestBase {
       conn.startPinger(100);
 
 
-      Assert.assertEquals(1, server.getRemotingService().getConnections().size());
+      assertEquals(1, server.getRemotingService().getConnections().size());
       StompConnection stompConnection = (StompConnection)server.getRemotingService().getConnections().iterator().next();
       StompFrameHandlerV11 stompFrameHandler = (StompFrameHandlerV11)stompConnection.getStompVersionHandler();
 
@@ -2230,7 +2225,7 @@ public class StompV11Test extends StompTestBase {
       Wait.assertFalse("HeartBeater is still running!!", () -> stompFrameHandler.getHeartBeater().isStarted());
    }
 
-   @Test
+   @TestTemplate
    public void testHeartBeat4() throws Exception {
       connection.close();
       ClientStompFrame frame = conn.createFrame("CONNECT");
@@ -2275,7 +2270,7 @@ public class StompV11Test extends StompTestBase {
 
       f = conn.receiveFrame(1000);
       logger.debug("Received {}", f.toString());
-      Assert.assertTrue(f.getCommand().equals("ERROR"));
+      assertTrue(f.getCommand().equals("ERROR"));
 
       conn.stopPinger();
 
@@ -2294,7 +2289,7 @@ public class StompV11Test extends StompTestBase {
 
       ClientStompFrame frame = conn.receiveFrame();
 
-      Assert.assertEquals(Stomp.Responses.MESSAGE, frame.getCommand());
+      assertEquals(Stomp.Responses.MESSAGE, frame.getCommand());
 
       logger.info("Reconnecting!");
 
@@ -2312,7 +2307,7 @@ public class StompV11Test extends StompTestBase {
       subscribe(conn, "sub1", null);
 
       frame = conn.receiveFrame();
-      Assert.assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
+      assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
 
       conn.disconnect();
 
@@ -2326,11 +2321,11 @@ public class StompV11Test extends StompTestBase {
       sendJmsMessage("shouldBeNextMessage");
 
       frame = conn.receiveFrame();
-      Assert.assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
-      Assert.assertEquals("shouldBeNextMessage", frame.getBody());
+      assertTrue(frame.getCommand().equals(Stomp.Responses.MESSAGE));
+      assertEquals("shouldBeNextMessage", frame.getBody());
    }
 
-   @Test
+   @TestTemplate
    public void testSendMessageToNonExistentQueueWithAutoCreation() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -2339,7 +2334,7 @@ public class StompV11Test extends StompTestBase {
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testSendAndReceiveWithEscapedCharactersInSenderId() throws Exception {
       conn.connect(defUser, defPass);
       send(conn, getQueuePrefix() + getQueueName(), null, "Hello World 1!");
@@ -2359,7 +2354,7 @@ public class StompV11Test extends StompTestBase {
       conn.disconnect();
    }
 
-   @Test
+   @TestTemplate
    public void testReceiveContentType() throws Exception {
       MessageConsumer consumer = session.createConsumer(queue);
 
@@ -2368,11 +2363,11 @@ public class StompV11Test extends StompTestBase {
       ClientStompFrame response = send(conn, getQueuePrefix() + getQueueName(), "text/plain", "Hello World");
 
       TextMessage message = (TextMessage) consumer.receive(1000);
-      Assert.assertNotNull(message);
-      Assert.assertEquals("text/plain", message.getStringProperty(org.apache.activemq.artemis.api.core.Message.HDR_CONTENT_TYPE.toString()));
+      assertNotNull(message);
+      assertEquals("text/plain", message.getStringProperty(org.apache.activemq.artemis.api.core.Message.HDR_CONTENT_TYPE.toString()));
    }
 
-   @Test
+   @TestTemplate
    public void testSendContentType() throws Exception {
       conn.connect(defUser, defPass);
 
@@ -2385,9 +2380,36 @@ public class StompV11Test extends StompTestBase {
       producer.send(message);
 
       ClientStompFrame frame = conn.receiveFrame();
-      Assert.assertNotNull(frame);
+      assertNotNull(frame);
 
-      Assert.assertEquals("text/plain", frame.getHeader(Stomp.Headers.CONTENT_TYPE));
+      assertEquals("text/plain", frame.getHeader(Stomp.Headers.CONTENT_TYPE));
+
+      conn.disconnect();
+   }
+
+   @TestTemplate
+   public void testSameMessageHasDifferentMessageIdPerConsumer() throws Exception {
+      conn.connect(defUser, defPass);
+
+      subscribeTopic(conn, "sub1", "client-individual", null);
+      subscribeTopic(conn, "sub2", "client-individual", null);
+
+      sendJmsMessage(getName(), topic);
+
+      ClientStompFrame frame1 = conn.receiveFrame();
+      String firstMessageID = frame1.getHeader(Stomp.Headers.Message.MESSAGE_ID);
+      assertNotNull(firstMessageID);
+
+      ClientStompFrame frame2 = conn.receiveFrame();
+      String secondMessageID = frame2.getHeader(Stomp.Headers.Message.MESSAGE_ID);
+      assertNotNull(secondMessageID);
+      assertTrue(!firstMessageID.equals(secondMessageID), firstMessageID + " must not equal " + secondMessageID);
+
+      ack(conn, "sub1", frame1);
+      ack(conn, "sub2", frame2);
+
+      unsubscribe(conn, "sub1");
+      unsubscribe(conn, "sub2");
 
       conn.disconnect();
    }

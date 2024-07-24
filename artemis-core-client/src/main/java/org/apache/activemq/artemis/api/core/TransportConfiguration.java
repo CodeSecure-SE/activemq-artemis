@@ -53,7 +53,7 @@ public class TransportConfiguration implements Serializable {
 
    private String name;
 
-   private String factoryClassName;
+   private String factoryClassName = "null";
 
    private Map<String, Object> params;
 
@@ -155,7 +155,7 @@ public class TransportConfiguration implements Serializable {
     * @param className The class name of the ConnectorFactory
     */
    public TransportConfiguration(final String className) {
-      this(className, new HashMap<String, Object>(), UUIDGenerator.getInstance().generateStringUUID());
+      this(className, new HashMap<>(), UUIDGenerator.getInstance().generateStringUUID());
    }
 
    /**
@@ -272,7 +272,7 @@ public class TransportConfiguration implements Serializable {
       StringBuilder str = new StringBuilder(TransportConfiguration.class.getSimpleName());
       str.append("(name=" + name + ", ");
       str.append("factory=" + (factoryClassName == null ? "null" : replaceWildcardChars(factoryClassName)));
-      str.append(") ");
+      str.append(")");
       str.append(toStringParameters(params, extraProps));
       return str.toString();
    }
