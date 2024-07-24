@@ -133,8 +133,8 @@ public interface ActiveMQClientLogger {
    @LogMessage(id = 212036, value = "Can not find packet to clear: {} last received command id first stored command id {}", level = LogMessage.Level.WARN)
    void cannotFindPacketToClear(Integer lastReceivedCommandID, Integer firstStoredCommandID);
 
-   @LogMessage(id = 212037, value = "Connection failure to {} has been detected: {} [code={}]", level = LogMessage.Level.WARN)
-   void connectionFailureDetected(String remoteAddress, String message, ActiveMQExceptionType type);
+   @LogMessage(id = 212037, value = "{} connection failure to {} has been detected: {} [code={}]", level = LogMessage.Level.WARN)
+   void connectionFailureDetected(String protocol, String remoteAddress, String message, ActiveMQExceptionType type);
 
    @LogMessage(id = 212038, value = "Failure in calling interceptor: {}", level = LogMessage.Level.WARN)
    void errorCallingInterceptor(Interceptor interceptor, Throwable e);
@@ -350,4 +350,7 @@ public interface ActiveMQClientLogger {
 
    @LogMessage(id = 214035, value = "Couldn't finish the client globalFlowControlThreadPool in less than 10 seconds, interrupting it now", level = LogMessage.Level.WARN)
    void unableToProcessGlobalFlowControlThreadPoolIn10Sec();
+
+   @LogMessage(id = 214036, value = "Connection closure to {} has been detected: {} [code={}]", level = LogMessage.Level.INFO)
+   void connectionClosureDetected(String remoteAddress, String message, ActiveMQExceptionType type);
 }

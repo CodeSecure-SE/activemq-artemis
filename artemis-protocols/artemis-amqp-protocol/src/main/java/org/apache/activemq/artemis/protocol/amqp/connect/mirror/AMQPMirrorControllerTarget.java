@@ -17,17 +17,14 @@
 package org.apache.activemq.artemis.protocol.amqp.connect.mirror;
 
 import java.util.Collection;
-import java.util.function.BooleanSupplier;
-import java.util.function.ToIntFunction;
 
 import org.apache.activemq.artemis.api.core.ActiveMQAddressDoesNotExistException;
 import org.apache.activemq.artemis.api.core.ActiveMQNonExistentQueueException;
 import org.apache.activemq.artemis.api.core.Message;
 import org.apache.activemq.artemis.api.core.QueueConfiguration;
 import org.apache.activemq.artemis.api.core.SimpleString;
+import org.apache.activemq.artemis.core.config.Configuration;
 import org.apache.activemq.artemis.core.io.IOCallback;
-import org.apache.activemq.artemis.core.io.RunnableCallback;
-import org.apache.activemq.artemis.core.paging.cursor.PagedReference;
 import org.apache.activemq.artemis.core.persistence.OperationContext;
 import org.apache.activemq.artemis.core.persistence.impl.journal.OperationContextImpl;
 import org.apache.activemq.artemis.core.postoffice.Binding;
@@ -165,6 +162,8 @@ public class AMQPMirrorControllerTarget extends ProtonAbstractReceiver implement
 
    final ActiveMQServer server;
 
+   final Configuration configuration;
+
    DuplicateIDCache lruduplicateIDCache;
    String lruDuplicateIDKey;
 
@@ -176,6 +175,8 @@ public class AMQPMirrorControllerTarget extends ProtonAbstractReceiver implement
 
    private MessageReader coreLargeMessageReader;
 
+   private AckManager ackManager;
+
    public AMQPMirrorControllerTarget(AMQPSessionCallback sessionSPI,
                                      AMQPConnectionContext connection,
                                      AMQPSessionContext protonSession,
@@ -185,6 +186,7 @@ public class AMQPMirrorControllerTarget extends ProtonAbstractReceiver implement
       this.basicController = new BasicMirrorController(server);
       this.basicController.setLink(receiver);
       this.server = server;
+      this.configuration = server.getConfiguration();
       this.referenceNodeStore = sessionSPI.getProtocolManager().getReferenceIDSupplier();
       mirrorContext = protonSession.getSessionSPI().getSessionContext();
    }
@@ -239,14 +241,17 @@ public class AMQPMirrorControllerTarget extends ProtonAbstractReceiver implement
                   String address = (String) AMQPMessageBrokerAccessor.getMessageAnnotationProperty(amqpMessage, ADDRESS);
                   String queueName = (String) AMQPMessageBrokerAccessor.getMessageAnnotationProperty(amqpMessage, QUEUE);
 
-                  deleteQueue(SimpleString.toSimpleString(address), SimpleString.toSimpleString(queueName));
+                  deleteQueue(SimpleString.of(address), SimpleString.of(queueName));
                } else if (eventType.equals(POST_ACK)) {
                   String nodeID = (String) AMQPMessageBrokerAccessor.getMessageAnnotationProperty(amqpMessage, BROKER_ID);
+
+                  logger.trace("ACK towards NodeID = {}, while the localNodeID={}", nodeID, server.getNodeID());
 
                   AckReason ackReason = AMQPMessageBrokerAccessor.getMessageAnnotationAckReason(amqpMessage);
 
                   if (nodeID == null) {
                      nodeID = getRemoteMirrorId(); // not sending the nodeID means it's data generated on that broker
+                     logger.trace("Replacing nodeID by {}", nodeID);
                   }
                   String queueName = (String) AMQPMessageBrokerAccessor.getMessageAnnotationProperty(amqpMessage, QUEUE);
                   AmqpValue value = (AmqpValue) amqpMessage.getBody();
@@ -388,76 +393,30 @@ public class AMQPMirrorControllerTarget extends ProtonAbstractReceiver implement
       }
 
       if (logger.isTraceEnabled()) {
-         logger.trace("Server {} with queue = {} being acked for {} coming from {} targetQueue = {}",
-                      server.getIdentity(), queue, messageID, messageID, targetQueue);
+         logger.trace("Server {} with queue = {} being acked for {} from {} targetQueue = {} reason = {}",
+                      server.getIdentity(), queue, messageID, ackMessage, targetQueue, reason);
       }
 
-      performAck(nodeID, messageID, targetQueue, ackMessage, reason, (short)0);
+      performAck(nodeID, targetQueue, messageID, ackMessage, reason);
       return true;
    }
 
-   public void performAckOnPage(String nodeID, long messageID, Queue targetQueue, IOCallback ackMessageOperation) {
-      PageAck pageAck = new PageAck(targetQueue, nodeID, messageID, ackMessageOperation);
-      targetQueue.getPageSubscription().scanAck(pageAck, pageAck, pageAck, pageAck);
-   }
-
-   private void performAck(String nodeID, long messageID, Queue targetQueue, ACKMessageOperation ackMessageOperation, AckReason reason, final short retry) {
+   private void performAck(String nodeID,
+                           Queue targetQueue,
+                           long messageID,
+                           ACKMessageOperation ackMessageOperation, AckReason reason) {
 
       if (logger.isTraceEnabled()) {
          logger.trace("performAck (nodeID={}, messageID={}), targetQueue={})", nodeID, messageID, targetQueue.getName());
       }
 
-      MessageReference reference = targetQueue.removeWithSuppliedID(nodeID, messageID, referenceNodeStore);
-
-      if (reference == null) {
-         if (logger.isDebugEnabled()) {
-            logger.debug("Retrying Reference not found on messageID={}, nodeID={}, queue={}. currentRetry={}", messageID, nodeID, targetQueue, retry);
-         }
-         switch (retry) {
-            case 0:
-               // first retry, after IO Operations
-               sessionSPI.getSessionContext().executeOnCompletion(new RunnableCallback(() -> performAck(nodeID, messageID, targetQueue, ackMessageOperation, reason, (short) 1)));
-               return;
-            case 1:
-               // second retry after the queue is flushed the temporary adds
-               targetQueue.flushOnIntermediate(() -> {
-                  recoverContext();
-                  performAck(nodeID, messageID, targetQueue, ackMessageOperation, reason, (short)2);
-               });
-               return;
-            case 2:
-               // third retry, on paging
-               if (reason != AckReason.EXPIRED) {
-                  // if expired, we don't need to check on paging
-                  // as the message will expire again when depaged (if on paging)
-                  performAckOnPage(nodeID, messageID, targetQueue, ackMessageOperation);
-                  return;
-               } else {
-                  connection.runNow(ackMessageOperation);
-               }
-         }
+      if (ackManager == null) {
+         ackManager = AckManagerProvider.getManager(server);
       }
 
-      if (reference != null) {
-         if (logger.isTraceEnabled()) {
-            logger.trace("Post ack Server {} worked well for messageID={} nodeID={} queue={}, targetQueue={}", server, messageID, nodeID, reference.getQueue(), targetQueue);
-         }
-         try {
-            switch (reason) {
-               case EXPIRED:
-                  targetQueue.expire(reference, null, false);
-                  break;
-               default:
-                  TransactionImpl transaction = new TransactionImpl(server.getStorageManager()).setAsync(true);
-                  targetQueue.acknowledge(transaction, reference, reason, null, false);
-                  transaction.commit();
-                  break;
-            }
-            OperationContextImpl.getContext().executeOnCompletion(ackMessageOperation);
-         } catch (Exception e) {
-            logger.warn(e.getMessage(), e);
-         }
-      }
+      ackManager.ack(nodeID, targetQueue, messageID, reason, true);
+
+      OperationContextImpl.getContext().executeOnCompletion(ackMessageOperation);
    }
 
    /**
@@ -499,7 +458,7 @@ public class AMQPMirrorControllerTarget extends ProtonAbstractReceiver implement
          logger.trace("Setting up duplicate detection cache on {}, ServerID={} with {} elements, being the number of credits", ProtonProtocolManager.MIRROR_ADDRESS, internalMirrorID, connection.getAmqpCredits());
 
          lruDuplicateIDKey = internalMirrorID;
-         lruduplicateIDCache = server.getPostOffice().getDuplicateIDCache(SimpleString.toSimpleString(ProtonProtocolManager.MIRROR_ADDRESS + "_" + internalMirrorID), connection.getAmqpCredits());
+         lruduplicateIDCache = server.getPostOffice().getDuplicateIDCache(SimpleString.of(ProtonProtocolManager.MIRROR_ADDRESS + "_" + internalMirrorID), connection.getAmqpCredits());
          duplicateIDCache = lruduplicateIDCache;
       }
 
@@ -518,7 +477,7 @@ public class AMQPMirrorControllerTarget extends ProtonAbstractReceiver implement
          message.setAddress(internalAddress);
       }
 
-      final TransactionImpl transaction = new MirrorTransaction(server.getStorageManager()).setAsync(true);
+      final TransactionImpl transaction = new MirrorTransaction(server.getStorageManager()).setAllowPageTransaction(configuration.isMirrorPageTransaction()).setAsync(true);
       transaction.addOperation(messageCompletionAck.tx);
       routingContext.setTransaction(transaction);
       duplicateIDCache.addToCache(duplicateIDBytes, transaction);
@@ -565,68 +524,4 @@ public class AMQPMirrorControllerTarget extends ProtonAbstractReceiver implement
       // Do nothing
    }
 
-   class PageAck implements ToIntFunction<PagedReference>, BooleanSupplier, Runnable {
-
-      final Queue targetQueue;
-      final String nodeID;
-      final long messageID;
-      final IOCallback operation;
-
-      PageAck(Queue targetQueue, String nodeID, long messageID, IOCallback operation) {
-         this.targetQueue = targetQueue;
-         this.nodeID = nodeID;
-         this.messageID = messageID;
-         this.operation = operation;
-      }
-
-      /**
-       * Method to retry the ack before a scan
-       */
-      @Override
-      public boolean getAsBoolean() {
-         try {
-            recoverContext();
-            MessageReference reference = targetQueue.removeWithSuppliedID(nodeID, messageID, referenceNodeStore);
-            if (reference == null) {
-               return false;
-            } else {
-               TransactionImpl tx = new TransactionImpl(server.getStorageManager()).setAsync(true);
-               targetQueue.acknowledge(tx, reference, AckReason.NORMAL, null, false);
-               tx.commit();
-               OperationContextImpl.getContext().executeOnCompletion(operation);
-               return true;
-            }
-         } catch (Throwable e) {
-            logger.warn(e.getMessage(), e);
-            return false;
-         }
-      }
-
-      @Override
-      public int applyAsInt(PagedReference reference) {
-         String refNodeID = referenceNodeStore.getServerID(reference);
-         long refMessageID = referenceNodeStore.getID(reference);
-         if (refNodeID == null) {
-            refNodeID = referenceNodeStore.getDefaultNodeID();
-         }
-
-         if (refNodeID.equals(nodeID)) {
-            long diff = refMessageID - messageID;
-            if (diff == 0) {
-               return 0;
-            } else if (diff > 0) {
-               return 1;
-            } else {
-               return -1;
-            }
-         } else {
-            return -1;
-         }
-      }
-
-      @Override
-      public void run() {
-         operation.done();
-      }
-   }
 }

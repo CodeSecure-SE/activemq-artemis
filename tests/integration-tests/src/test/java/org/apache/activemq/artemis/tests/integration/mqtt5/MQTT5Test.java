@@ -16,6 +16,13 @@
  */
 package org.apache.activemq.artemis.tests.integration.mqtt5;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
 import javax.jms.JMSConsumer;
 import javax.jms.JMSContext;
 import javax.jms.Message;
@@ -25,6 +32,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.activemq.artemis.api.core.QueueConfiguration;
 import org.apache.activemq.artemis.api.core.RoutingType;
@@ -50,7 +58,8 @@ import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.eclipse.paho.mqttv5.common.MqttSubscription;
 import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 import org.eclipse.paho.mqttv5.common.packet.UserProperty;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,7 +70,8 @@ public class MQTT5Test extends MQTT5TestSupport {
 
    private static final Logger logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testSimpleSendReceive() throws Exception {
       String topic = RandomUtil.randomString();
 
@@ -83,10 +93,33 @@ public class MQTT5Test extends MQTT5TestSupport {
       assertTrue(latch.await(500, TimeUnit.MILLISECONDS));
    }
 
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
+   public void testTopicNameEscape() throws Exception {
+      final String topic = "foo1.0/bar/baz";
+      AtomicReference<String> receivedTopic = new AtomicReference<>();
+
+      MqttClient subscriber = createPahoClient("subscriber");
+      subscriber.connect();
+      subscriber.setCallback(new DefaultMqttCallback() {
+         @Override
+         public void messageArrived(String t, MqttMessage message) {
+            receivedTopic.set(t);
+         }
+      });
+      subscriber.subscribe(topic, AT_LEAST_ONCE);
+
+      MqttClient producer = createPahoClient("producer");
+      producer.connect();
+      producer.publish(topic, "myMessage".getBytes(StandardCharsets.UTF_8), 1, false);
+      Wait.assertEquals(topic, receivedTopic::get, 500, 50);
+   }
+
    /*
     * Ensure that the broker adds a timestamp on the message when sending via MQTT
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testTimestamp() throws Exception {
       final String DESTINATION = RandomUtil.randomString();
 
@@ -107,7 +140,8 @@ public class MQTT5Test extends MQTT5TestSupport {
       context.close();
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testResumeSubscriptionsAfterRestart() throws Exception {
       final int SUBSCRIPTION_COUNT = 100;
       List<String> topicNames = new ArrayList<>(SUBSCRIPTION_COUNT);
@@ -170,7 +204,8 @@ public class MQTT5Test extends MQTT5TestSupport {
    /*
     * Trying to reproduce error from https://issues.apache.org/jira/browse/ARTEMIS-1184
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testAddressAutoCreation() throws Exception {
       final String DESTINATION = RandomUtil.randomString();
       server.getAddressSettingsRepository().addMatch(DESTINATION, new AddressSettings().setAutoCreateAddresses(true));
@@ -181,10 +216,11 @@ public class MQTT5Test extends MQTT5TestSupport {
       producer.disconnect();
       producer.close();
 
-      Wait.assertTrue(() -> server.getAddressInfo(SimpleString.toSimpleString(DESTINATION)) != null, 2000, 100);
+      Wait.assertTrue(() -> server.getAddressInfo(SimpleString.of(DESTINATION)) != null, 2000, 100);
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testAddressAutoCreationNegative() throws Exception {
       final String DESTINATION = RandomUtil.randomString();
       server.getAddressSettingsRepository().addMatch(DESTINATION, new AddressSettings().setAutoCreateAddresses(false));
@@ -195,14 +231,15 @@ public class MQTT5Test extends MQTT5TestSupport {
       producer.disconnect();
       producer.close();
 
-      assertTrue(server.getAddressInfo(SimpleString.toSimpleString(DESTINATION)) == null);
+      assertTrue(server.getAddressInfo(SimpleString.of(DESTINATION)) == null);
    }
 
    /*
     * There is no normative statement in the spec about supporting user properties on will messages, but it is implied
     * in various places.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testWillMessageProperties() throws Exception {
       final byte[] WILL = RandomUtil.randomBytes();
       final String[][] properties = new String[10][2];
@@ -250,7 +287,8 @@ public class MQTT5Test extends MQTT5TestSupport {
     * It's possible for a client to change their session expiry interval via the DISCONNECT packet. Ensure we respect
     * a new session expiry interval when disconnecting.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testExpiryDelayOnDisconnect() throws Exception {
       final String CONSUMER_ID = RandomUtil.randomString();
 
@@ -269,12 +307,13 @@ public class MQTT5Test extends MQTT5TestSupport {
    /*
     * If the Will flag is false then don't send a will message even if the session expiry is > 0
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testWillFlagFalseWithSessionExpiryDelay() throws Exception {
       // enable send-to-dla-on-no-route so that we can detect an errant will message on disconnect
-      server.createQueue(new QueueConfiguration("activemq.notifications"));
-      server.createQueue(new QueueConfiguration("DLA"));
-      server.getAddressSettingsRepository().addMatch("#", new AddressSettings().setSendToDLAOnNoRoute(true).setDeadLetterAddress(SimpleString.toSimpleString("DLA")));
+      server.createQueue(QueueConfiguration.of("activemq.notifications"));
+      server.createQueue(QueueConfiguration.of("DLA"));
+      server.getAddressSettingsRepository().addMatch("#", new AddressSettings().setSendToDLAOnNoRoute(true).setDeadLetterAddress(SimpleString.of("DLA")));
 
       MqttClient client = createPahoClient("willGenerator");
       MqttConnectionOptions options = new MqttConnectionOptionsBuilder()
@@ -286,7 +325,8 @@ public class MQTT5Test extends MQTT5TestSupport {
       assertEquals(0, server.locateQueue("DLA").getMessageCount());
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQueueCleanOnRestart() throws Exception {
       String topic = RandomUtil.randomString();
       String clientId = RandomUtil.randomString();
@@ -303,11 +343,12 @@ public class MQTT5Test extends MQTT5TestSupport {
       org.apache.activemq.artemis.tests.util.Wait.assertTrue(() -> getSubscriptionQueue(topic, clientId) != null, 3000, 10);
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testRecursiveWill() throws Exception {
       try (AssertionLoggerHandler loggerHandler = new AssertionLoggerHandler()) {
          final String WILL_QUEUE = "will";
-         server.createQueue(new QueueConfiguration(WILL_QUEUE).setRoutingType(RoutingType.ANYCAST));
+         server.createQueue(QueueConfiguration.of(WILL_QUEUE).setRoutingType(RoutingType.ANYCAST));
          PagingManagerImplAccessor.setDiskFull((PagingManagerImpl) server.getPagingManager(), true);
          MqttClient client = createPahoClient("willGenerator");
          MqttConnectionOptions options = new MqttConnectionOptionsBuilder().will(WILL_QUEUE, new MqttMessage(RandomUtil.randomBytes())).build();
@@ -317,7 +358,8 @@ public class MQTT5Test extends MQTT5TestSupport {
       }
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testSharedSubscriptionsWithSameName() throws Exception {
       final String TOPIC1 = "myTopic1";
       final String TOPIC2 = "myTopic2";
@@ -332,8 +374,8 @@ public class MQTT5Test extends MQTT5TestSupport {
       consumer1.setCallback(new LatchedMqttCallback(ackLatch1));
       consumer1.subscribe(SHARED_SUB1, 1);
 
-      assertNotNull(server.getAddressInfo(SimpleString.toSimpleString(TOPIC1)));
-      Queue q1 = getSubscriptionQueue(TOPIC1, "consumer1", SUB_NAME);
+      assertNotNull(server.getAddressInfo(SimpleString.of(TOPIC1)));
+      Queue q1 = getSharedSubscriptionQueue(SHARED_SUB1);
       assertNotNull(q1);
       assertEquals(TOPIC1, q1.getAddress().toString());
       assertEquals(1, q1.getConsumerCount());
@@ -343,8 +385,8 @@ public class MQTT5Test extends MQTT5TestSupport {
       consumer2.setCallback(new LatchedMqttCallback(ackLatch2));
       consumer2.subscribe(SHARED_SUB2, 1);
 
-      assertNotNull(server.getAddressInfo(SimpleString.toSimpleString(TOPIC2)));
-      Queue q2 = getSubscriptionQueue(TOPIC2, "consumer2", SUB_NAME);
+      assertNotNull(server.getAddressInfo(SimpleString.of(TOPIC2)));
+      Queue q2 = getSharedSubscriptionQueue(SHARED_SUB2);
       assertNotNull(q2);
       assertEquals(TOPIC2, q2.getAddress().toString());
       assertEquals(1, q2.getConsumerCount());
@@ -360,10 +402,10 @@ public class MQTT5Test extends MQTT5TestSupport {
       assertTrue(ackLatch2.await(2, TimeUnit.SECONDS));
 
       consumer1.unsubscribe(SHARED_SUB1);
-      assertNull(getSubscriptionQueue(TOPIC1, "consumer1", SUB_NAME));
+      assertNull(getSharedSubscriptionQueue(SHARED_SUB1));
 
       consumer2.unsubscribe(SHARED_SUB2);
-      assertNull(getSubscriptionQueue(TOPIC2, "consumer2", SUB_NAME));
+      assertNull(getSharedSubscriptionQueue(SHARED_SUB2));
 
       consumer1.disconnect();
       consumer1.close();
@@ -371,7 +413,8 @@ public class MQTT5Test extends MQTT5TestSupport {
       consumer2.close();
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testSharedSubscriptionsWithSameName2() throws Exception {
       final String TOPIC1 = "myTopic1";
       final String TOPIC2 = "myTopic2";
@@ -387,14 +430,14 @@ public class MQTT5Test extends MQTT5TestSupport {
       consumer.setCallback(new LatchedMqttCallback(ackLatch));
       consumer.subscribe(SHARED_SUBS, new int[]{1, 1});
 
-      assertNotNull(server.getAddressInfo(SimpleString.toSimpleString(TOPIC1)));
-      Queue q1 = getSubscriptionQueue(TOPIC1, "consumer1", SUB_NAME);
+      assertNotNull(server.getAddressInfo(SimpleString.of(TOPIC1)));
+      Queue q1 = getSharedSubscriptionQueue(SHARED_SUBS[0]);
       assertNotNull(q1);
       assertEquals(TOPIC1, q1.getAddress().toString());
       assertEquals(1, q1.getConsumerCount());
 
-      assertNotNull(server.getAddressInfo(SimpleString.toSimpleString(TOPIC2)));
-      Queue q2 = getSubscriptionQueue(TOPIC2, "consumer1", SUB_NAME);
+      assertNotNull(server.getAddressInfo(SimpleString.of(TOPIC2)));
+      Queue q2 = getSharedSubscriptionQueue(SHARED_SUBS[1]);
       assertNotNull(q2);
       assertEquals(TOPIC2, q2.getAddress().toString());
       assertEquals(1, q2.getConsumerCount());
@@ -409,14 +452,15 @@ public class MQTT5Test extends MQTT5TestSupport {
       assertTrue(ackLatch.await(2, TimeUnit.SECONDS));
 
       consumer.unsubscribe(SHARED_SUBS);
-      assertNull(getSubscriptionQueue(TOPIC1, "consumer1", SUB_NAME));
-      assertNull(getSubscriptionQueue(TOPIC2, "consumer1", SUB_NAME));
+      assertNull(getSharedSubscriptionQueue(SHARED_SUBS[0]));
+      assertNull(getSharedSubscriptionQueue(SHARED_SUBS[1]));
 
       consumer.disconnect();
       consumer.close();
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testSharedSubscriptionQueueRemoval() throws Exception {
       final String TOPIC = "myTopic";
       final String SUB_NAME = "myShare";
@@ -491,7 +535,8 @@ public class MQTT5Test extends MQTT5TestSupport {
       Wait.assertTrue(() -> server.locateQueue(SUB_NAME.concat(".").concat(TOPIC)) == null, 2000, 100);
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testAutoDeleteAddressWithWildcardSubscription() throws Exception {
       String prefix = "topic";
       server.getAddressSettingsRepository().addMatch(prefix + ".#", new AddressSettings().setAutoDeleteAddresses(true).setAutoDeleteAddressesSkipUsageCheck(true));
@@ -519,20 +564,21 @@ public class MQTT5Test extends MQTT5TestSupport {
       assertTrue(latch.await(2, TimeUnit.SECONDS));
 
       for (String address : addresses) {
-         assertNotNull(server.getAddressInfo(SimpleString.toSimpleString(address)));
+         assertNotNull(server.getAddressInfo(SimpleString.of(address)));
       }
 
       PostOfficeTestAccessor.sweepAndReapAddresses((PostOfficeImpl) server.getPostOffice());
 
       for (String address : addresses) {
-         assertNull(server.getAddressInfo(SimpleString.toSimpleString(address)));
+         assertNull(server.getAddressInfo(SimpleString.of(address)));
       }
 
       consumer.disconnect();
       consumer.close();
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testConnectionStealingDisabled() throws Exception {
       setAcceptorProperty("allowLinkStealing=false");
       final String CLIENT_ID = RandomUtil.randomString();
@@ -558,7 +604,8 @@ public class MQTT5Test extends MQTT5TestSupport {
       client.close();
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testConnectionStealingOnMultipleAcceptors() throws Exception {
       int secondaryPort = 1884;
       final String CLIENT_ID = RandomUtil.randomString();
@@ -583,7 +630,8 @@ public class MQTT5Test extends MQTT5TestSupport {
       client2.close();
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testConnectionStealingDisabledOnMultipleAcceptors() throws Exception {
       int secondaryPort = 1884;
       final String CLIENT_ID = RandomUtil.randomString();
@@ -612,7 +660,8 @@ public class MQTT5Test extends MQTT5TestSupport {
       client.close();
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQueueCleanedUpOnConsumerFail() throws Exception {
       final String topic = getName();
       final String clientID = getName();
@@ -636,7 +685,8 @@ public class MQTT5Test extends MQTT5TestSupport {
       client.close();
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testSubscriptionQueueName() throws Exception {
       final String topic = "a/b";
       final String clientID = "myClientID";
@@ -644,7 +694,22 @@ public class MQTT5Test extends MQTT5TestSupport {
       MqttClient client = createPahoClient(clientID);
       client.connect();
       client.subscribe(topic, 1);
-      Wait.assertTrue(() -> server.locateQueue(SimpleString.toSimpleString(clientID.concat(".").concat(topic.replace('/', '.')))) != null, 2000, 100);
+      Wait.assertTrue(() -> getSubscriptionQueue(topic, clientID) != null, 2000, 100);
+      client.disconnect();
+      client.close();
+   }
+
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
+   public void testSubscriptionQueueCreatedWhenAutoCreateDisabled() throws Exception {
+      final String topic = "a/b";
+      final String clientID = "myClientID";
+      server.getAddressSettingsRepository().getMatch(topic).setAutoCreateQueues(false);
+
+      MqttClient client = createPahoClient(clientID);
+      client.connect();
+      client.subscribe(topic, 1);
+      Wait.assertTrue(() -> getSubscriptionQueue(topic, clientID) != null, 2000, 100);
       client.disconnect();
       client.close();
    }

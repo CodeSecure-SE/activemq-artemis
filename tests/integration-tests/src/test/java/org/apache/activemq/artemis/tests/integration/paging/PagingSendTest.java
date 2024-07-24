@@ -16,6 +16,10 @@
  */
 package org.apache.activemq.artemis.tests.integration.paging;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -40,13 +44,12 @@ import org.apache.activemq.artemis.core.server.Queue;
 import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
 import org.apache.activemq.artemis.tests.util.ActiveMQTestBase;
 import org.apache.activemq.artemis.utils.collections.LinkedListIterator;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class PagingSendTest extends ActiveMQTestBase {
 
-   public static final SimpleString ADDRESS = new SimpleString("SimpleAddress");
+   public static final SimpleString ADDRESS = SimpleString.of("SimpleAddress");
 
    private ServerLocator locator;
 
@@ -57,7 +60,7 @@ public class PagingSendTest extends ActiveMQTestBase {
    }
 
    @Override
-   @Before
+   @BeforeEach
    public void setUp() throws Exception {
       super.setUp();
       server = newActiveMQServer();
@@ -97,7 +100,7 @@ public class PagingSendTest extends ActiveMQTestBase {
       ClientSessionFactory sf = createSessionFactory(locator);
       ClientSession session = sf.createSession(null, null, false, true, true, false, 0);
 
-      session.createQueue(new QueueConfiguration(PagingSendTest.ADDRESS));
+      session.createQueue(QueueConfiguration.of(PagingSendTest.ADDRESS));
 
       ClientProducer producer = session.createProducer(PagingSendTest.ADDRESS);
 
@@ -121,7 +124,7 @@ public class PagingSendTest extends ActiveMQTestBase {
       for (int i = 0; i < 200; i++) {
          ClientMessage message2 = consumer.receive(10000);
 
-         Assert.assertNotNull(message2);
+         assertNotNull(message2);
 
          if (i == 100) {
             session.commit();
@@ -141,7 +144,7 @@ public class PagingSendTest extends ActiveMQTestBase {
 
       ClientSession sessionConsumer = sf.createSession(true, true, 0);
 
-      sessionConsumer.createQueue(new QueueConfiguration(PagingSendTest.ADDRESS));
+      sessionConsumer.createQueue(QueueConfiguration.of(PagingSendTest.ADDRESS));
 
       final ClientSession sessionProducer = sf.createSession(false, false);
       final ClientProducer producer = sessionProducer.createProducer(PagingSendTest.ADDRESS);
@@ -153,33 +156,30 @@ public class PagingSendTest extends ActiveMQTestBase {
       // Consumer will be ready after we have commits
       final CountDownLatch ready = new CountDownLatch(1);
 
-      Thread tProducer = new Thread() {
-         @Override
-         public void run() {
-            try {
-               int commit = 0;
-               for (int i = 0; i < TOTAL_MESSAGES; i++) {
-                  ClientMessage msg = sessionProducer.createMessage(true);
-                  msg.getBodyBuffer().writeBytes(new byte[1024]);
-                  msg.putIntProperty("count", i);
-                  producer.send(msg);
+      Thread tProducer = new Thread(() -> {
+         try {
+            int commit = 0;
+            for (int i = 0; i < TOTAL_MESSAGES; i++) {
+               ClientMessage msg = sessionProducer.createMessage(true);
+               msg.getBodyBuffer().writeBytes(new byte[1024]);
+               msg.putIntProperty("count", i);
+               producer.send(msg);
 
-                  if (i % 100 == 0 && i > 0) {
-                     sessionProducer.commit();
-                     if (commit++ > 2) {
-                        ready.countDown();
-                     }
+               if (i % 100 == 0 && i > 0) {
+                  sessionProducer.commit();
+                  if (commit++ > 2) {
+                     ready.countDown();
                   }
                }
-
-               sessionProducer.commit();
-
-            } catch (Exception e) {
-               e.printStackTrace();
-               errors.incrementAndGet();
             }
+
+            sessionProducer.commit();
+
+         } catch (Exception e) {
+            e.printStackTrace();
+            errors.incrementAndGet();
          }
-      };
+      });
 
       ClientConsumer consumer = sessionConsumer.createConsumer(PagingSendTest.ADDRESS);
 
@@ -192,7 +192,7 @@ public class PagingSendTest extends ActiveMQTestBase {
       for (int i = 0; i < TOTAL_MESSAGES; i++) {
          ClientMessage msg = consumer.receive(10000);
 
-         Assert.assertNotNull(msg);
+         assertNotNull(msg);
 
          assertEquals(i, msg.getIntProperty("count").intValue());
 
@@ -216,8 +216,8 @@ public class PagingSendTest extends ActiveMQTestBase {
       ClientSession session = sf.createSession(false, false);
 
       // Create a queue
-      SimpleString queueAddr = new SimpleString("testQueue");
-      session.createQueue(new QueueConfiguration(queueAddr));
+      SimpleString queueAddr = SimpleString.of("testQueue");
+      session.createQueue(QueueConfiguration.of(queueAddr));
 
       // Set up paging on the queue address
       AddressSettings addressSettings = new AddressSettings().setPageSizeBytes(10 * 1024)
@@ -230,7 +230,7 @@ public class PagingSendTest extends ActiveMQTestBase {
       Queue queue = server.locateQueue(queueAddr);
 
       // Give time Queue.deliverAsync to deliver messages
-      Assert.assertTrue("Messages were not propagated to internal structures.", waitForMessages(queue, batchSize, 3000));
+      assertTrue(waitForMessages(queue, batchSize, 3000), "Messages were not propagated to internal structures.");
 
       AtomicInteger errors = new AtomicInteger(0);
       CountDownLatch done = new CountDownLatch(1);
@@ -250,7 +250,7 @@ public class PagingSendTest extends ActiveMQTestBase {
          }
          done.countDown();
       });
-      Assert.assertEquals(0, errors.get());
+      assertEquals(0, errors.get());
 
    }
 
@@ -262,8 +262,8 @@ public class PagingSendTest extends ActiveMQTestBase {
       ClientSession session = sf.createSession(false, false);
 
       // Create a queue
-      SimpleString queueAddr = new SimpleString("testQueue");
-      session.createQueue(new QueueConfiguration(queueAddr));
+      SimpleString queueAddr = SimpleString.of("testQueue");
+      session.createQueue(QueueConfiguration.of(queueAddr));
 
       // Set up paging on the queue address
       AddressSettings addressSettings = new AddressSettings().setPageSizeBytes(10 * 1024)
@@ -334,7 +334,7 @@ public class PagingSendTest extends ActiveMQTestBase {
             duplicates++;
          }
       }
-      Assert.assertEquals(0, duplicates);
+      assertEquals(0, duplicates);
    }
 
    public boolean waitForMessages(Queue queue, int count, long timeout) throws Exception {

@@ -196,7 +196,7 @@ Please consult your specific configuration to know which values will actually be
 | The frequency in milliseconds the configuration file is checked for changes
 | 5000
 
-| xref:ha.adoc#data-replication[check-for-live-server]
+| xref:ha.adoc#replication-configuration[check-for-active-server]
 | Used by a primary server to verify if there are other nodes with the same ID on the topology
 | n/a
 
@@ -370,7 +370,7 @@ The system will create as many files as needed however when reclaiming files it 
 If set to "true" the passwords are masked.
 | `false`
 
-| xref:ha.adoc#data-replication[max-saved-replicated-journals-size]
+| xref:ha.adoc#replication-configuration[max-saved-replicated-journals-size]
 | This specifies how many replication backup directories will be kept when server starts as replica.
 -1 Means no Limit;
 0 don't keep a copy at all.
@@ -591,6 +591,19 @@ In most cases this should be set to '1'.
 | xref:wildcard-syntax.adoc#wildcard-syntax[wildcard-addresses]
 | parameters to configure wildcard address matching format.
 | n/a
+
+| [[view-permission-method-match-pattern]] view-permission-method-match-pattern
+| parameter to configure the regular expression pattern to match xref:management.adoc#fine-grained-rbac-on-management-messages[management] or xref:management.adoc#jmx-authorization-in-broker-xml[JMX] operations that require the 'view' permission
+in your security-settings.
+| ``^(get\|is\|count\|list\|browse\|query).*$``
+
+| [[management-message-rbac]] management-message-rbac
+| parameter to enable security-settings RBAC on xref:management.adoc#fine-grained-rbac-on-management-messages[management messages] sent to the management address.
+| false
+
+| [[management-rbac-prefix]] management-rbac-prefix
+| parameter to configure the prefix for security-settings match addresses to control RBAC on xref:management.adoc#jmx-authorization-in-broker-xml[JMX MBean operations] and optionally on xref:management.adoc#fine-grained-rbac-on-management-messages[management messages]
+| mops (shorthand for management operations)
 |===
 
 == address-setting type

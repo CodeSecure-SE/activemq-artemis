@@ -45,6 +45,7 @@ import org.apache.activemq.artemis.core.paging.cursor.PageCursorProvider;
 import org.apache.activemq.artemis.core.paging.cursor.PageSubscription;
 import org.apache.activemq.artemis.core.persistence.OperationContext;
 import org.apache.activemq.artemis.core.persistence.StorageManager;
+import org.apache.activemq.artemis.core.persistence.impl.journal.OperationContextImpl;
 import org.apache.activemq.artemis.core.replication.ReplicationManager;
 import org.apache.activemq.artemis.core.server.ActiveMQMessageBundle;
 import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
@@ -58,6 +59,7 @@ import org.apache.activemq.artemis.core.settings.impl.PageFullMessagePolicy;
 import org.apache.activemq.artemis.core.transaction.Transaction;
 import org.apache.activemq.artemis.core.transaction.TransactionOperation;
 import org.apache.activemq.artemis.core.transaction.TransactionPropertyIndexes;
+import org.apache.activemq.artemis.utils.ArtemisCloseable;
 import org.apache.activemq.artemis.utils.FutureLatch;
 import org.apache.activemq.artemis.utils.SizeAwareMetric;
 import org.apache.activemq.artemis.utils.actors.ArtemisExecutor;
@@ -65,6 +67,7 @@ import org.apache.activemq.artemis.utils.runnables.AtomicRunnable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.lang.invoke.MethodHandles;
+import java.util.function.Function;
 
 /**
  * @see PagingStore
@@ -119,6 +122,12 @@ public class PagingStoreImpl implements PagingStore {
    private int pageSize;
 
    private volatile AddressFullMessagePolicy addressFullMessagePolicy;
+
+   // Internal components such as mirroring could enforce a different page full message policy
+   // differing from the AddressSettings
+   // Example: User configured sync mirroring while default address-settings is PAGE. We must use Block on that case
+   //          User configured non sync mirroring while configured drop. We must use page. (always paged)
+   private volatile AddressFullMessagePolicy enforcedAddressFullMessagePolicy;
 
    private boolean printedDropMessagesWarning;
 
@@ -217,9 +226,6 @@ public class PagingStoreImpl implements PagingStore {
 
    private void configureSizeMetric() {
       size.setMax(maxSize, maxSize, maxMessages, maxMessages);
-      size.setSizeEnabled(maxSize >= 0);
-      size.setElementsEnabled(maxMessages >= 0);
-
    }
 
    /**
@@ -245,7 +251,11 @@ public class PagingStoreImpl implements PagingStore {
       // it can be reconfigured through jdbc-max-page-size-bytes in the JDBC configuration section
       pageSize = storageManager.getAllowedPageSize(addressSettings.getPageSizeBytes());
 
-      addressFullMessagePolicy = addressSettings.getAddressFullMessagePolicy();
+      if (enforcedAddressFullMessagePolicy != null) {
+         this.addressFullMessagePolicy = enforcedAddressFullMessagePolicy;
+      } else {
+         addressFullMessagePolicy = addressSettings.getAddressFullMessagePolicy();
+      }
 
       rejectThreshold = addressSettings.getMaxSizeBytesRejectThreshold();
 
@@ -402,10 +412,15 @@ public class PagingStoreImpl implements PagingStore {
    }
 
    @Override
+   public long getAddressElements() {
+      return size.getElements();
+   }
+
+   @Override
    public long getMaxSize() {
       if (maxSize <= 0) {
          // if maxSize <= 0, we will return 2 pages for de-page purposes
-         return pageSize * 2;
+         return pageSize * 2L;
       } else {
          return maxSize;
       }
@@ -434,6 +449,13 @@ public class PagingStoreImpl implements PagingStore {
    @Override
    public AddressFullMessagePolicy getAddressFullMessagePolicy() {
       return addressFullMessagePolicy;
+   }
+
+   @Override
+   public PagingStoreImpl enforceAddressFullMessagePolicy(AddressFullMessagePolicy enforcedAddressFullMessagePolicy) {
+      this.addressFullMessagePolicy = enforcedAddressFullMessagePolicy;
+      this.enforcedAddressFullMessagePolicy = enforcedAddressFullMessagePolicy;
+      return this;
    }
 
    @Override
@@ -500,15 +522,17 @@ public class PagingStoreImpl implements PagingStore {
    @Override
    public void ioSync() throws Exception {
       if (!fileFactory.supportsIndividualContext()) {
+         Page page;
          lock.readLock().lock();
 
          try {
-            final Page page = currentPage;
-            if (page != null) {
-               page.sync();
-            }
+            page = currentPage;
          } finally {
             lock.readLock().unlock();
+         }
+
+         if (page != null) {
+            page.trySync();
          }
       }
    }
@@ -546,21 +570,9 @@ public class PagingStoreImpl implements PagingStore {
 
       final List<Runnable> pendingTasks = new ArrayList<>();
 
-      final int pendingTasksWhileShuttingDown = executor.shutdownNow(pendingTasks::add, 30, TimeUnit.SECONDS);
-      if (pendingTasksWhileShuttingDown > 0) {
-         logger.trace("Try executing {} pending tasks on stop", pendingTasksWhileShuttingDown);
-         for (Runnable pendingTask : pendingTasks) {
-            try {
-               pendingTask.run();
-            } catch (Throwable t) {
-               logger.warn("Error while executing a pending task on shutdown", t);
-            }
-         }
-      }
-
       final Page page = currentPage;
       if (page != null) {
-         page.close(false);
+         page.close(true);
          currentPage = null;
       }
    }
@@ -811,14 +823,23 @@ public class PagingStoreImpl implements PagingStore {
 
    @Override
    public Page usePage(final long pageId, final boolean create) {
+      return usePage(pageId, create, create);
+   }
+
+   @Override
+   public Page usePage(final long pageId, final boolean createEntry, final boolean createFile) {
       synchronized (usedPages) {
          try {
             Page page = usedPages.get(pageId);
-            if (create && page == null) {
+            if (createEntry && page == null) {
                page = newPageObject(pageId);
                if (page.getFile().exists()) {
                   page.getMessages();
                   injectPage(page);
+               } else {
+                  if (!createFile) {
+                     page = null;
+                  }
                }
             }
             if (page != null) {
@@ -968,7 +989,7 @@ public class PagingStoreImpl implements PagingStore {
                }
 
                returnPage = currentPage;
-               returnPage.close(false);
+               returnPage.close(true);
                resetCurrentPage(null);
 
                // The current page is empty... which means we reached the end of the pages
@@ -1103,8 +1124,8 @@ public class PagingStoreImpl implements PagingStore {
    }
 
    @Override
-   public void addSize(final int size, boolean sizeOnly) {
-      long newSize = this.size.addSize(size, sizeOnly);
+   public void addSize(final int size, boolean sizeOnly, boolean affectGlobal) {
+      long newSize = this.size.addSize(size, sizeOnly, affectGlobal);
       boolean globalFull = pagingManager.isGlobalFull();
 
       if (newSize < 0) {
@@ -1146,6 +1167,14 @@ public class PagingStoreImpl implements PagingStore {
    public boolean page(Message message,
                        final Transaction tx,
                        RouteContextList listCtx) throws Exception {
+      return page(message, tx, listCtx, null);
+   }
+
+   @Override
+   public boolean page(Message message,
+                       final Transaction tx,
+                       RouteContextList listCtx,
+                       Function<Message, Message> pageDecorator) throws Exception {
 
       if (!running) {
          return false;
@@ -1207,12 +1236,13 @@ public class PagingStoreImpl implements PagingStore {
          return true;
       }
 
-      return writePage(message, tx, listCtx);
+      return writePage(message, tx, listCtx, pageDecorator);
    }
 
    private boolean writePage(Message message,
                              Transaction tx,
-                             RouteContextList listCtx) throws Exception {
+                             RouteContextList listCtx,
+                             Function<Message, Message> pageDecorator) throws Exception {
       lock.writeLock().lock();
 
       try {
@@ -1220,12 +1250,15 @@ public class PagingStoreImpl implements PagingStore {
             return false;
          }
 
-         final long transactionID = tx == null ? -1 : tx.getID();
-         PagedMessage pagedMessage = new PagedMessageImpl(message, routeQueues(tx, listCtx), transactionID);
+         final long transactionID = (tx != null && tx.isAllowPageTransaction()) ? tx.getID() : -1L;
 
-         if (message.isLargeMessage()) {
-            ((LargeServerMessage) message).setPaged();
+         if (pageDecorator != null) {
+            message = pageDecorator.apply(message);
          }
+
+         message.setPaged();
+
+         PagedMessage pagedMessage = new PagedMessageImpl(message, routeQueues(tx, listCtx), transactionID);
 
          int bytesToWrite = pagedMessage.getEncodeSize() + PageReadWriter.SIZE_RECORD;
 
@@ -1236,7 +1269,7 @@ public class PagingStoreImpl implements PagingStore {
             currentPageSize += bytesToWrite;
          }
 
-         if (tx != null) {
+         if (tx != null && tx.isAllowPageTransaction()) {
             installPageTransaction(tx, listCtx);
          }
 
@@ -1352,7 +1385,10 @@ public class PagingStoreImpl implements PagingStore {
          tx.addOperation(pgOper);
       }
 
-      pgOper.addStore(this);
+      if (!tx.isAsync()) {
+         pgOper.addStore(this);
+      }
+
       pgOper.pageTransaction.increment(listCtx.getNumberOfDurableQueues(), listCtx.getNumberOfNonDurableQueues());
 
       return;
@@ -1360,9 +1396,41 @@ public class PagingStoreImpl implements PagingStore {
 
    @Override
    public void destroy() throws Exception {
-      SequentialFileFactory factory = fileFactory;
-      if (factory != null) {
-         storeFactory.removeFileFactory(factory);
+      // destroy has to be executed in the same executor as the cleanup
+      execute(this::internalDestroy);
+      OperationContext context = OperationContextImpl.getContext();
+      if (context != null) {
+         // this is to make clients to wait the delete completion of the storage
+         context.storeLineUp();
+         execute(context::done);
+      }
+   }
+
+   private void internalDestroy() {
+      try (ArtemisCloseable readLock = storageManager.closeableReadLock()) {
+         while (true) {
+            if (lock(100)) {
+               break;
+            }
+         }
+
+         try {
+            SequentialFileFactory factory = fileFactory;
+            if (factory != null) {
+               try {
+                  storeFactory.removeFileFactory(factory);
+               } catch (Exception e) {
+                  logger.warn(e.getMessage(), e);
+               }
+            }
+         } finally {
+            unlock();
+            try {
+               stop();
+            } catch (Exception e2) {
+               logger.debug(e2.getMessage(), e2);
+            }
+         }
       }
    }
 
@@ -1411,7 +1479,9 @@ public class PagingStoreImpl implements PagingStore {
 
       @Override
       public void beforeCommit(final Transaction tx) throws Exception {
-         syncStore();
+         if (!tx.isAsync()) {
+            syncStore();
+         }
          storePageTX(tx);
       }
 
@@ -1465,7 +1535,7 @@ public class PagingStoreImpl implements PagingStore {
          final long newPageId = currentPageId + 1;
 
          if (logger.isTraceEnabled()) {
-            logger.trace("new pageNr={}", newPageId);
+            logger.trace("destination {} new pageNr={}", storeName, newPageId);
          }
 
          final Page oldPage = currentPage;

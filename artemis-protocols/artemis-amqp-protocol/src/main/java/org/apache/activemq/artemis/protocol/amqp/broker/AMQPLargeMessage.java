@@ -73,6 +73,11 @@ public class AMQPLargeMessage extends AMQPMessage implements LargeServerMessage 
       }
    }
 
+   @Override
+   public Message getMessage() {
+      return this;
+   }
+
    private boolean reencoded = false;
 
    /**
@@ -266,11 +271,6 @@ public class AMQPLargeMessage extends AMQPMessage implements LargeServerMessage 
       }
    }
 
-   @Override
-   public void validateFile() throws ActiveMQException {
-      largeBody.validateFile();
-   }
-
    public void setFileDurable(boolean value) {
       this.fileDurable = value;
    }
@@ -327,7 +327,6 @@ public class AMQPLargeMessage extends AMQPMessage implements LargeServerMessage 
       decoder.setBuffer(buffer);
 
       try {
-         int constructorPos = buffer.position();
          TypeConstructor<?> constructor = decoder.readConstructor();
          if (Header.class.equals(constructor.getTypeClass())) {
             header = (Header) constructor.readValue();
@@ -434,13 +433,22 @@ public class AMQPLargeMessage extends AMQPMessage implements LargeServerMessage 
 
    @Override
    public void setPaged() {
+      super.setPaged();
       largeBody.setPaged();
    }
 
    @Override
    public void releaseResources(boolean sync, boolean sendEvent) {
       largeBody.releaseResources(sync, sendEvent);
+   }
 
+   @Override
+   public boolean isOpen() {
+      try {
+         return largeBody.getAppendFile().isOpen();
+      } catch (Throwable e) {
+         return false;
+      }
    }
 
    @Override

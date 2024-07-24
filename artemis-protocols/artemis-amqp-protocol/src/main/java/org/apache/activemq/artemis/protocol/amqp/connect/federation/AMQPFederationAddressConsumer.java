@@ -62,11 +62,13 @@ import org.apache.activemq.artemis.protocol.amqp.logger.ActiveMQAMQPProtocolMess
 import org.apache.activemq.artemis.protocol.amqp.proton.AMQPConnectionContext;
 import org.apache.activemq.artemis.protocol.amqp.proton.AMQPSessionContext;
 import org.apache.activemq.artemis.protocol.amqp.proton.AmqpJmsSelectorFilter;
+import org.apache.activemq.artemis.protocol.amqp.proton.AmqpNoLocalFilter;
 import org.apache.activemq.artemis.protocol.amqp.proton.AmqpSupport;
 import org.apache.activemq.artemis.protocol.amqp.proton.AMQPTunneledCoreLargeMessageReader;
 import org.apache.activemq.artemis.protocol.amqp.proton.AMQPTunneledCoreMessageReader;
 import org.apache.activemq.artemis.protocol.amqp.proton.MessageReader;
 import org.apache.activemq.artemis.protocol.amqp.proton.ProtonServerReceiverContext;
+import org.apache.activemq.artemis.reader.MessageUtil;
 import org.apache.qpid.proton.amqp.Symbol;
 import org.apache.qpid.proton.amqp.messaging.Accepted;
 import org.apache.qpid.proton.amqp.messaging.DeliveryAnnotations;
@@ -96,7 +98,7 @@ public class AMQPFederationAddressConsumer implements FederationConsumerInternal
 
    // Redefined because AMQPMessage uses SimpleString in its annotations API for some reason.
    private static final SimpleString MESSAGE_HOPS_ANNOTATION =
-      new SimpleString(AMQPFederationPolicySupport.MESSAGE_HOPS_ANNOTATION.toString());
+      SimpleString.of(AMQPFederationPolicySupport.MESSAGE_HOPS_ANNOTATION.toString());
 
    private static final Symbol[] DEFAULT_OUTCOMES = new Symbol[]{Accepted.DESCRIPTOR_SYMBOL, Rejected.DESCRIPTOR_SYMBOL,
                                                                  Released.DESCRIPTOR_SYMBOL, Modified.DESCRIPTOR_SYMBOL};
@@ -165,7 +167,7 @@ public class AMQPFederationAddressConsumer implements FederationConsumerInternal
          if (started) {
             started = false;
             connection.runLater(() -> {
-               federation.removeLinkClosedInterceptor(consumerInfo.getFqqn());
+               federation.removeLinkClosedInterceptor(consumerInfo.getId());
 
                if (receiver != null) {
                   try {
@@ -274,18 +276,20 @@ public class AMQPFederationAddressConsumer implements FederationConsumerInternal
                source.setCapabilities(AmqpSupport.TOPIC_CAPABILITY);
             }
 
+            final Map<Symbol, Object> filtersMap = new HashMap<>();
+            filtersMap.put(AmqpSupport.NO_LOCAL_NAME, AmqpNoLocalFilter.NO_LOCAL);
+
+            if (consumerInfo.getFilterString() != null && !consumerInfo.getFilterString().isEmpty()) {
+               final AmqpJmsSelectorFilter jmsFilter = new AmqpJmsSelectorFilter(consumerInfo.getFilterString());
+
+               filtersMap.put(AmqpSupport.JMS_SELECTOR_KEY, jmsFilter);
+            }
+
             source.setOutcomes(Arrays.copyOf(DEFAULT_OUTCOMES, DEFAULT_OUTCOMES.length));
             source.setDurable(TerminusDurability.NONE);
             source.setExpiryPolicy(TerminusExpiryPolicy.LINK_DETACH);
             source.setAddress(address);
-
-            if (consumerInfo.getFilterString() != null && !consumerInfo.getFilterString().isEmpty()) {
-               final AmqpJmsSelectorFilter jmsFilter = new AmqpJmsSelectorFilter(consumerInfo.getFilterString());
-               final Map<Symbol, Object> filtersMap = new HashMap<>();
-               filtersMap.put(AmqpSupport.JMS_SELECTOR_KEY, jmsFilter);
-
-               source.setFilter(filtersMap);
-            }
+            source.setFilter(filtersMap);
 
             target.setAddress(address);
 
@@ -317,11 +321,11 @@ public class AMQPFederationAddressConsumer implements FederationConsumerInternal
             final ScheduledFuture<?> openTimeoutTask;
             final AtomicBoolean openTimedOut = new AtomicBoolean(false);
 
-            if (federation.getLinkAttachTimeout() > 0) {
+            if (configuration.getLinkAttachTimeout() > 0) {
                openTimeoutTask = federation.getServer().getScheduledPool().schedule(() -> {
                   openTimedOut.set(true);
                   federation.signalResourceCreateError(ActiveMQAMQPProtocolMessageBundle.BUNDLE.brokerConnectionTimeout());
-               }, federation.getLinkAttachTimeout(), TimeUnit.SECONDS);
+               }, configuration.getLinkAttachTimeout(), TimeUnit.SECONDS);
             } else {
                openTimeoutTask = null;
             }
@@ -350,7 +354,7 @@ public class AMQPFederationAddressConsumer implements FederationConsumerInternal
                   // Intercept remote close and check for valid reasons for remote closure such as
                   // the remote peer not having a matching queue for this subscription or from an
                   // operator manually closing the link.
-                  federation.addLinkClosedInterceptor(consumerInfo.getFqqn(), remoteCloseInterceptor);
+                  federation.addLinkClosedInterceptor(consumerInfo.getId(), remoteCloseInterceptor);
 
                   receiver = new AMQPFederatedAddressDeliveryReceiver(session, consumerInfo, protonReceiver);
 
@@ -427,7 +431,7 @@ public class AMQPFederationAddressConsumer implements FederationConsumerInternal
       AMQPFederatedAddressDeliveryReceiver(AMQPSessionContext session, FederationConsumerInfo consumerInfo, Receiver receiver) {
          super(session.getSessionSPI(), session.getAMQPConnectionContext(), session, receiver);
 
-         this.cachedAddress = SimpleString.toSimpleString(consumerInfo.getAddress());
+         this.cachedAddress = SimpleString.of(consumerInfo.getAddress());
       }
 
       @Override
@@ -480,7 +484,7 @@ public class AMQPFederationAddressConsumer implements FederationConsumerInternal
             throw new ActiveMQAMQPInternalErrorException("Remote should have sent an valid Target but we got: " + target);
          }
 
-         address = SimpleString.toSimpleString(target.getAddress());
+         address = SimpleString.of(target.getAddress());
          defRoutingType = getRoutingType(target.getCapabilities(), address);
 
          try {
@@ -526,6 +530,11 @@ public class AMQPFederationAddressConsumer implements FederationConsumerInternal
 
             if (message instanceof ICoreMessage) {
                baseMessage = incrementCoreMessageHops((ICoreMessage) message);
+
+               // Add / Update the connection Id value to reflect the remote container Id so that the
+               // no-local filter of a federation address receiver directed back to the source of this
+               // message will exclude it as intended.
+               baseMessage.putStringProperty(MessageUtil.CONNECTION_ID_PROPERTY_NAME_STRING, getConnection().getRemoteContainer());
             } else {
                baseMessage = incrementAMQPMessageHops((AMQPMessage) message);
             }

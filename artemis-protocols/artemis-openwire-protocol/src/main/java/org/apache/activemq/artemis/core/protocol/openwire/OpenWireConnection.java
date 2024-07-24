@@ -485,6 +485,11 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
       checkInactivity();
    }
 
+   @Override
+   public void close() {
+      destroy();
+   }
+
    private void checkInactivity() {
       if (!this.useKeepAlive) {
          return;
@@ -774,39 +779,47 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
 
       recoverOperationContext();
 
-      if (me != null) {
-         //filter it like the other protocols
-         if (!(me instanceof ActiveMQRemoteDisconnectException)) {
-            ActiveMQClientLogger.LOGGER.connectionFailureDetected(this.transportConnection.getRemoteAddress(), me.getMessage(), me.getType());
-         }
-      }
       try {
-         if (this.getConnectionInfo() != null) {
-            protocolManager.removeConnection(getClientID(), this);
+         if (me != null) {
+            //filter it like the other protocols
+            if (!(me instanceof ActiveMQRemoteDisconnectException)) {
+               ActiveMQClientLogger.LOGGER.connectionFailureDetected(this.transportConnection.getProtocolConnection().getProtocolName(), this.transportConnection.getRemoteAddress(), me.getMessage(), me.getType());
+            }
          }
+         try {
+            if (this.getConnectionInfo() != null) {
+               protocolManager.removeConnection(getClientID(), this);
+            }
+         } finally {
+            try {
+               disconnect(false);
+            } catch (Throwable e) {
+               // it should never happen, but never say never
+               logger.debug("OpenWireConnection::disconnect failure", e);
+            }
+
+            // there may be some transactions not associated with sessions
+            // deal with them after sessions are removed via connection removal
+            operationContext.executeOnCompletion(new IOCallback() {
+               @Override
+               public void done() {
+                  rollbackInProgressLocalTransactions();
+               }
+
+               @Override
+               public void onError(int errorCode, String errorMessage) {
+                  rollbackInProgressLocalTransactions();
+               }
+            });
+         }
+         shutdown(true);
       } finally {
          try {
-            disconnect(false);
-         } catch (Throwable e) {
-            // it should never happen, but never say never
-            logger.debug("OpenWireConnection::disconnect failure", e);
+            transportConnection.close();
+         } catch (Throwable e2) {
+            logger.warn(e2.getMessage(), e2);
          }
-
-         // there may be some transactions not associated with sessions
-         // deal with them after sessions are removed via connection removal
-         operationContext.executeOnCompletion(new IOCallback() {
-            @Override
-            public void done() {
-               rollbackInProgressLocalTransactions();
-            }
-
-            @Override
-            public void onError(int errorCode, String errorMessage) {
-               rollbackInProgressLocalTransactions();
-            }
-         });
       }
-      shutdown(true);
    }
 
    private void delayedStop(final int waitTimeMillis, final String reason, Throwable cause) {
@@ -909,9 +922,9 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
          return;
       }
 
-      SimpleString qName = SimpleString.toSimpleString(dest.getPhysicalName());
+      SimpleString qName = SimpleString.of(dest.getPhysicalName());
 
-      AutoCreateResult autoCreateResult = internalSession.checkAutoCreate(new QueueConfiguration(qName)
+      AutoCreateResult autoCreateResult = internalSession.checkAutoCreate(QueueConfiguration.of(qName)
                                                                              .setRoutingType(dest.isQueue() ? RoutingType.ANYCAST : RoutingType.MULTICAST)
                                                                              .setDurable(!dest.isTemporary())
                                                                              .setTemporary(dest.isTemporary()));
@@ -982,7 +995,7 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
             return;
          }
 
-         amqSession.start();
+         consumersList.forEach((c) -> c.start());
 
          if (AdvisorySupport.isAdvisoryTopic(info.getDestination())) {
             //advisory for temp destinations
@@ -1018,12 +1031,9 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
       this.maxInactivityDuration = inactivityDuration;
 
       if (this.useKeepAlive) {
-         ttlCheck = protocolManager.getScheduledPool().schedule(new Runnable() {
-            @Override
-            public void run() {
-               if (inactivityDuration >= 0) {
-                  connectionEntry.ttl = inactivityDuration;
-               }
+         ttlCheck = protocolManager.getScheduledPool().schedule(() -> {
+            if (inactivityDuration >= 0) {
+               connectionEntry.ttl = inactivityDuration;
             }
          }, inactivityDurationInitialDelay, TimeUnit.MILLISECONDS);
          checkInactivity();
@@ -1122,6 +1132,7 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
    public AMQSession addSession(SessionInfo ss) {
       AMQSession amqSession = new AMQSession(getState().getInfo(), ss, server, this, protocolManager, coreMessageObjectPools);
       amqSession.initialize();
+      amqSession.start();
 
       sessions.put(ss.getSessionId(), amqSession);
       sessionIdMap.put(amqSession.getCoreSession().getName(), ss.getSessionId());
@@ -1149,7 +1160,7 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
             logger.warn("OpenWire client sending a queue remove towards {}", dest.getPhysicalName());
          }
          try {
-            server.destroyQueue(new SimpleString(dest.getPhysicalName()), getRemotingConnection());
+            server.destroyQueue(SimpleString.of(dest.getPhysicalName()), getRemotingConnection());
          } catch (ActiveMQNonExistentQueueException neq) {
             //this is ok, ActiveMQ 5 allows this and will actually do it quite often
             logger.debug("queue never existed");

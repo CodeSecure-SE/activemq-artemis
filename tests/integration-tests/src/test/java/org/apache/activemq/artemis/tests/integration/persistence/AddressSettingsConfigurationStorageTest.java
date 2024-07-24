@@ -16,6 +16,8 @@
  */
 package org.apache.activemq.artemis.tests.integration.persistence;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,26 +26,27 @@ import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.core.config.StoreConfiguration;
 import org.apache.activemq.artemis.core.persistence.StorageManager;
 import org.apache.activemq.artemis.core.persistence.config.AbstractPersistedAddressSetting;
-import org.apache.activemq.artemis.core.persistence.config.PersistedAddressSetting;
+import org.apache.activemq.artemis.core.persistence.config.PersistedAddressSettingJSON;
 import org.apache.activemq.artemis.core.settings.impl.AddressFullMessagePolicy;
 import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
 import org.apache.activemq.artemis.core.settings.impl.DeletionPolicy;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.apache.activemq.artemis.tests.extensions.parameterized.ParameterizedTestExtension;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.TestTemplate;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-@RunWith(Parameterized.class)
+//Parameters set in super class
+@ExtendWith(ParameterizedTestExtension.class)
 public class AddressSettingsConfigurationStorageTest extends StorageManagerTestBase {
 
-   private Map<SimpleString, PersistedAddressSetting> mapExpectedAddresses;
+   private Map<SimpleString, PersistedAddressSettingJSON> mapExpectedAddresses;
 
    public AddressSettingsConfigurationStorageTest(StoreConfiguration.StoreType storeType) {
       super(storeType);
    }
 
    @Override
-   @Before
+   @BeforeEach
    public void setUp() throws Exception {
       super.setUp();
 
@@ -51,19 +54,19 @@ public class AddressSettingsConfigurationStorageTest extends StorageManagerTestB
    }
 
    protected void addAddress(StorageManager journal1, String address, AddressSettings setting) throws Exception {
-      SimpleString str = new SimpleString(address);
-      PersistedAddressSetting persistedSetting = new PersistedAddressSetting(str, setting);
+      SimpleString str = SimpleString.of(address);
+      PersistedAddressSettingJSON persistedSetting = new PersistedAddressSettingJSON(str, setting, setting.toJSON());
       mapExpectedAddresses.put(str, persistedSetting);
       journal1.storeAddressSetting(persistedSetting);
    }
 
-   @Test
+   @TestTemplate
    public void testStoreSecuritySettings() throws Exception {
       createStorage();
 
       AddressSettings setting = new AddressSettings();
 
-      setting = new AddressSettings().setAddressFullMessagePolicy(AddressFullMessagePolicy.BLOCK).setDeadLetterAddress(new SimpleString("some-test"));
+      setting = new AddressSettings().setAddressFullMessagePolicy(AddressFullMessagePolicy.BLOCK).setDeadLetterAddress(SimpleString.of("some-test"));
 
       addAddress(journal, "a2", setting);
 
@@ -73,7 +76,7 @@ public class AddressSettingsConfigurationStorageTest extends StorageManagerTestB
 
       checkAddresses(journal);
 
-      setting = new AddressSettings().setDeadLetterAddress(new SimpleString("new-adddress"));
+      setting = new AddressSettings().setDeadLetterAddress(SimpleString.of("new-adddress"));
 
       // Replacing the first setting
       addAddress(journal, "a1", setting);
@@ -90,7 +93,7 @@ public class AddressSettingsConfigurationStorageTest extends StorageManagerTestB
 
    }
 
-   @Test
+   @TestTemplate
    public void testStoreConfigDeleteSettings() throws Exception {
       createStorage();
 
@@ -123,7 +126,7 @@ public class AddressSettingsConfigurationStorageTest extends StorageManagerTestB
       assertEquals(mapExpectedAddresses.size(), listSetting.size());
 
       for (AbstractPersistedAddressSetting el : listSetting) {
-         PersistedAddressSetting el2 = mapExpectedAddresses.get(el.getAddressMatch());
+         PersistedAddressSettingJSON el2 = mapExpectedAddresses.get(el.getAddressMatch());
 
          assertEquals(el.getAddressMatch(), el2.getAddressMatch());
          assertEquals(el.getSetting(), el2.getSetting());

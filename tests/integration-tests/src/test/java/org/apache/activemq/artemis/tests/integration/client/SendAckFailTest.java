@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import org.apache.activemq.artemis.api.core.ActiveMQBuffer;
 import org.apache.activemq.artemis.api.core.ActiveMQException;
@@ -41,7 +42,6 @@ import org.apache.activemq.artemis.api.core.client.ClientMessage;
 import org.apache.activemq.artemis.api.core.client.ClientProducer;
 import org.apache.activemq.artemis.api.core.client.ClientSession;
 import org.apache.activemq.artemis.api.core.client.ClientSessionFactory;
-import org.apache.activemq.artemis.api.core.client.SendAcknowledgementHandler;
 import org.apache.activemq.artemis.api.core.client.ServerLocator;
 import org.apache.activemq.artemis.core.config.Configuration;
 import org.apache.activemq.artemis.core.config.impl.SecurityConfiguration;
@@ -49,19 +49,19 @@ import org.apache.activemq.artemis.core.io.IOCallback;
 import org.apache.activemq.artemis.core.io.SequentialFile;
 import org.apache.activemq.artemis.core.journal.Journal;
 import org.apache.activemq.artemis.core.journal.JournalLoadInformation;
+import org.apache.activemq.artemis.core.journal.RecordInfo;
 import org.apache.activemq.artemis.core.paging.PageTransactionInfo;
 import org.apache.activemq.artemis.core.paging.PagedMessage;
 import org.apache.activemq.artemis.core.paging.PagingManager;
 import org.apache.activemq.artemis.core.paging.PagingStore;
 import org.apache.activemq.artemis.core.paging.cursor.PagePosition;
 import org.apache.activemq.artemis.core.persistence.AddressBindingInfo;
+import org.apache.activemq.artemis.core.persistence.AddressQueueStatus;
 import org.apache.activemq.artemis.core.persistence.GroupingInfo;
 import org.apache.activemq.artemis.core.persistence.OperationContext;
 import org.apache.activemq.artemis.core.persistence.QueueBindingInfo;
-import org.apache.activemq.artemis.core.persistence.AddressQueueStatus;
 import org.apache.activemq.artemis.core.persistence.StorageManager;
 import org.apache.activemq.artemis.core.persistence.config.AbstractPersistedAddressSetting;
-import org.apache.activemq.artemis.core.persistence.config.PersistedAddressSetting;
 import org.apache.activemq.artemis.core.persistence.config.PersistedAddressSettingJSON;
 import org.apache.activemq.artemis.core.persistence.config.PersistedBridgeConfiguration;
 import org.apache.activemq.artemis.core.persistence.config.PersistedConnector;
@@ -90,22 +90,24 @@ import org.apache.activemq.artemis.spi.core.security.ActiveMQJAASSecurityManager
 import org.apache.activemq.artemis.spi.core.security.ActiveMQSecurityManager;
 import org.apache.activemq.artemis.spi.core.security.jaas.InVMLoginModule;
 import org.apache.activemq.artemis.tests.util.SpawnedTestBase;
+import org.apache.activemq.artemis.tests.util.Wait;
 import org.apache.activemq.artemis.utils.ArtemisCloseable;
 import org.apache.activemq.artemis.utils.SpawnedVMSupport;
-import org.apache.activemq.artemis.tests.util.Wait;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 public class SendAckFailTest extends SpawnedTestBase {
 
    private static final Logger logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
-   @Before
-   @After
+   @BeforeEach
+   @AfterEach
    public void deleteDirectory() throws Exception {
       deleteDirectory(new File("./target/send-ack"));
    }
@@ -149,37 +151,29 @@ public class SendAckFailTest extends SpawnedTestBase {
             ClientSessionFactory sf = locator.createSessionFactory();
 
             ClientSession session = sf.createSession();
-            session.createAddress(SimpleString.toSimpleString("T1"), RoutingType.ANYCAST, true);
-            session.createQueue(new QueueConfiguration("T1").setRoutingType(RoutingType.ANYCAST));
+            session.createAddress(SimpleString.of("T1"), RoutingType.ANYCAST, true);
+            session.createQueue(QueueConfiguration.of("T1").setRoutingType(RoutingType.ANYCAST));
 
             ClientProducer producer = session.createProducer("T1");
 
-            session.setSendAcknowledgementHandler(new SendAcknowledgementHandler() {
-               @Override
-               public void sendAcknowledged(Message message) {
-                  listSent.add(message.getIntProperty("myid"));
-               }
-            });
+            session.setSendAcknowledgementHandler(message -> listSent.add(message.getIntProperty("myid")));
 
-            t = new Thread() {
-               @Override
-               public void run() {
-                  for (int i = 0; i < 5000; i++) {
-                     try {
-                        producer.send(session.createMessage(true).putIntProperty("myid", i));
-                     } catch (Exception e) {
-                        e.printStackTrace();
-                        break;
-                     }
+            t = new Thread(() -> {
+               for (int i = 0; i < 5000; i++) {
+                  try {
+                     producer.send(session.createMessage(true).putIntProperty("myid", i));
+                  } catch (Exception e) {
+                     e.printStackTrace();
+                     break;
                   }
                }
-            };
+            });
             t.start();
          }
 
          Wait.waitFor(() -> listSent.size() > 100, 5000, 10);
 
-         Assert.assertTrue(process.waitFor(1, TimeUnit.MINUTES));
+         assertTrue(process.waitFor(1, TimeUnit.MINUTES));
 
          server = startServer(false);
 
@@ -237,21 +231,18 @@ public class SendAckFailTest extends SpawnedTestBase {
 
 
          if (fail) {
-            new Thread() {
-               @Override
-               public void run() {
-                  try {
+            new Thread(() -> {
+               try {
 
-                     // this is a protection, if the process is left forgoten for any amount of time,
-                     // this will kill it
-                     // This is to avoid rogue processes on the CI
-                     Thread.sleep(10000);
-                     System.err.println("Halting process, protecting the CI from rogue processes");
-                     Runtime.getRuntime().halt(-1);
-                  } catch (Throwable e) {
-                  }
+                  // this is a protection, if the process is left forgoten for any amount of time,
+                  // this will kill it
+                  // This is to avoid rogue processes on the CI
+                  Thread.sleep(10000);
+                  System.err.println("Halting process, protecting the CI from rogue processes");
+                  Runtime.getRuntime().halt(-1);
+               } catch (Throwable e) {
                }
-            }.start();
+            }).start();
          }
 
          ActiveMQServer server = new ActiveMQServerImpl(configuration, ManagementFactory.getPlatformMBeanServer(), securityManager) {
@@ -298,8 +289,13 @@ public class SendAckFailTest extends SpawnedTestBase {
       }
 
       @Override
-      public LargeServerMessage largeMessageCreated(long id, LargeServerMessage largeMessage) throws Exception {
-         return manager.largeMessageCreated(id, largeMessage);
+      public LargeServerMessage onLargeMessageCreate(long id, LargeServerMessage largeMessage) throws Exception {
+         return manager.onLargeMessageCreate(id, largeMessage);
+      }
+
+      @Override
+      public AbstractPersistedAddressSetting recoverAddressSettings(SimpleString address) {
+         return null;
       }
 
       @Override
@@ -382,8 +378,8 @@ public class SendAckFailTest extends SpawnedTestBase {
       }
 
       @Override
-      public void pageWrite(PagedMessage message, long pageNumber) {
-         manager.pageWrite(message, pageNumber);
+      public void pageWrite(SimpleString address, PagedMessage message, long pageNumber) {
+         manager.pageWrite(address, message, pageNumber);
       }
 
       @Override
@@ -545,13 +541,13 @@ public class SendAckFailTest extends SpawnedTestBase {
       }
 
       @Override
-      public LargeServerMessage createLargeMessage() {
-         return manager.createLargeMessage();
+      public LargeServerMessage createCoreLargeMessage() {
+         return manager.createCoreLargeMessage();
       }
 
       @Override
-      public LargeServerMessage createLargeMessage(long id, Message message) throws Exception {
-         return manager.createLargeMessage(id, message);
+      public LargeServerMessage createCoreLargeMessage(long id, Message message) throws Exception {
+         return manager.createCoreLargeMessage(id, message);
       }
 
       @Override
@@ -613,8 +609,9 @@ public class SendAckFailTest extends SpawnedTestBase {
                                                        Set<Pair<Long, Long>> pendingLargeMessages,
                                                        Set<Long> largeMessagesInFolder,
                                                        List<PageCountPending> pendingNonTXPageCounter,
-                                                       JournalLoader journalLoader) throws Exception {
-         return manager.loadMessageJournal(postOffice, pagingManager, resourceManager, queueInfos, duplicateIDMap, pendingLargeMessages, largeMessagesInFolder, pendingNonTXPageCounter, journalLoader);
+                                                       JournalLoader journalLoader,
+                                                       List<Consumer<RecordInfo>> extraLoaders) throws Exception {
+         return manager.loadMessageJournal(postOffice, pagingManager, resourceManager, queueInfos, duplicateIDMap, pendingLargeMessages, largeMessagesInFolder, pendingNonTXPageCounter, journalLoader, extraLoaders);
       }
 
       @Override
@@ -683,11 +680,6 @@ public class SendAckFailTest extends SpawnedTestBase {
       @Override
       public void deleteGrouping(long tx, GroupBinding groupBinding) throws Exception {
          manager.deleteGrouping(tx, groupBinding);
-      }
-
-      @Override
-      public void storeAddressSetting(PersistedAddressSetting addressSetting) throws Exception {
-         manager.storeAddressSetting(addressSetting);
       }
 
       @Override

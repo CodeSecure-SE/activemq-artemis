@@ -42,10 +42,6 @@ public interface LargeServerMessage extends ReplicatedLargeMessage {
 
    long getMessageID();
 
-   /**
-    * We have to copy the large message content in case of DLQ and paged messages
-    * For that we need to pre-mark the LargeMessage with a flag when it is paged
-    */
    void setPaged();
 
    /**
@@ -53,6 +49,8 @@ public interface LargeServerMessage extends ReplicatedLargeMessage {
     */
    @Override
    void releaseResources(boolean sync, boolean sendEvent);
+
+   boolean isOpen();
 
    @Override
    void deleteFile() throws Exception;
@@ -69,6 +67,4 @@ public interface LargeServerMessage extends ReplicatedLargeMessage {
    LargeBody getLargeBody();
 
    void setStorageManager(StorageManager storageManager);
-
-   void validateFile() throws ActiveMQException;
 }

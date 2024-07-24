@@ -18,7 +18,9 @@
 package org.apache.activemq.artemis.tests.integration.amqp.connect;
 
 import static org.apache.activemq.artemis.protocol.amqp.proton.AMQPTunneledMessageConstants.AMQP_TUNNELED_CORE_MESSAGE_FORMAT;
+import static org.apache.activemq.artemis.protocol.amqp.proton.AmqpSupport.CONNECTION_FORCED;
 import static org.apache.activemq.artemis.protocol.amqp.proton.AmqpSupport.TUNNEL_CORE_MESSAGES;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.lang.invoke.MethodHandles;
 import java.net.URI;
@@ -49,7 +51,8 @@ import org.apache.activemq.artemis.tests.integration.amqp.AmqpClientTestSupport;
 import org.apache.activemq.artemis.tests.util.CFUtil;
 import org.apache.qpid.protonj2.test.driver.ProtonTestServer;
 import org.hamcrest.Matchers;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,7 +77,8 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
       return "AMQP,CORE";
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testBrokerMirrorConnectsWithAnonymous() throws Exception {
       final Map<String, Object> brokerProperties = new HashMap<>();
       brokerProperties.put(AMQPMirrorControllerSource.BROKER_ID.toString(), "Test-Broker");
@@ -96,7 +100,7 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
 
          // No user or pass given, it will have to select ANONYMOUS even though PLAIN also offered
          AMQPBrokerConnectConfiguration amqpConnection =
-               new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+               new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.addElement(new AMQPMirrorBrokerConnectionElement());
          server.getConfiguration().addAMQPConnection(amqpConnection);
@@ -108,7 +112,8 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testBrokerMirrorConnectsWithPlain() throws Exception {
       final Map<String, Object> brokerProperties = new HashMap<>();
       brokerProperties.put(AMQPMirrorControllerSource.BROKER_ID.toString(), "Test-Broker");
@@ -129,7 +134,7 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
          logger.info("Connect test started, peer listening on: {}", remoteURI);
 
          AMQPBrokerConnectConfiguration amqpConnection =
-               new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+               new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.setUser("user");
          amqpConnection.setPassword("pass");
@@ -143,7 +148,8 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testBrokerHandlesSenderLinkOmitsMirrorCapability() throws Exception {
       try (ProtonTestServer peer = new ProtonTestServer()) {
          peer.expectSASLAnonymousConnect("PLAIN", "ANONYMOUS");
@@ -152,7 +158,9 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
          peer.expectAttach().ofSender()
                             .withName(Matchers.startsWith("$ACTIVEMQ_ARTEMIS_MIRROR"))
                             .withDesiredCapabilities("amq.mirror", AmqpSupport.CORE_MESSAGE_TUNNELING_SUPPORT.toString())
-                            .respond();
+                            .respond(); // Response omits "amq.mirror" in offered capabilities.
+         peer.expectClose().withError(CONNECTION_FORCED.toString()).optional(); // Can hit the wire in rare instances.
+         peer.expectConnectionToDrop();
          peer.start();
 
          final URI remoteURI = peer.getServerURI();
@@ -160,7 +168,7 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
 
          // No user or pass given, it will have to select ANONYMOUS even though PLAIN also offered
          AMQPBrokerConnectConfiguration amqpConnection =
-               new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+               new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.addElement(new AMQPMirrorBrokerConnectionElement());
          server.getConfiguration().addAMQPConnection(amqpConnection);
@@ -172,7 +180,8 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testBrokerAddsAddressAndQueue() throws Exception {
       final Map<String, Object> brokerProperties = new HashMap<>();
       brokerProperties.put(AMQPMirrorControllerSource.BROKER_ID.toString(), "Test-Broker");
@@ -196,7 +205,7 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
          logger.info("Connect test started, peer listening on: {}", remoteURI);
 
          AMQPBrokerConnectConfiguration amqpConnection =
-               new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+               new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.setUser("user");
          amqpConnection.setPassword("pass");
@@ -206,7 +215,7 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
          server.start();
 
          server.addAddressInfo(new AddressInfo("sometest").setAutoCreated(false));
-         server.createQueue(new QueueConfiguration("sometest").setDurable(true));
+         server.createQueue(QueueConfiguration.of("sometest").setDurable(true));
 
          peer.waitForScriptToComplete(5, TimeUnit.SECONDS);
 
@@ -214,7 +223,8 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testCreateDurableConsumerReplicatesAddressAndQueue() throws Exception {
       final Map<String, Object> brokerProperties = new HashMap<>();
       brokerProperties.put(AMQPMirrorControllerSource.BROKER_ID.toString(), "Test-Broker");
@@ -239,7 +249,7 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
          logger.info("Connect test started, peer listening on: {}", remoteURI);
 
          AMQPBrokerConnectConfiguration amqpConnection =
-               new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+               new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.setUser("user");
          amqpConnection.setPassword("pass");
@@ -264,12 +274,14 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testBrokerMirrorHonorsCoreTunnelingEnable() throws Exception {
       testBrokerMirrorHonorsCoreTunnelingEnableOrDisable(true);
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testBrokerMirrorHonorsCoreTunnelingDisable() throws Exception {
       testBrokerMirrorHonorsCoreTunnelingEnableOrDisable(false);
    }
@@ -305,7 +317,7 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
          mirrorElement.addProperty(TUNNEL_CORE_MESSAGES, Boolean.toString(tunneling));
 
          AMQPBrokerConnectConfiguration amqpConnection =
-               new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+               new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.setUser("user");
          amqpConnection.setPassword("pass");
@@ -319,12 +331,14 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testProducerMessageIsMirroredWithCoreTunnelingUsesCoreMessageFormat() throws Exception {
       doTestProducerMessageIsMirroredWithCorrectMessageFormat(true);
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testProducerMessageIsMirroredWithoutCoreTunnelingUsesDefaultMessageFormat() throws Exception {
       doTestProducerMessageIsMirroredWithCorrectMessageFormat(false);
    }
@@ -369,13 +383,13 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
          mirrorElement.setQueueCreation(true);
 
          AMQPBrokerConnectConfiguration amqpConnection =
-               new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+               new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.setUser("user");
          amqpConnection.setPassword("pass");
          amqpConnection.addElement(mirrorElement);
 
-         server.createQueue(new QueueConfiguration("myQueue").setDurable(true));
+         server.createQueue(QueueConfiguration.of("myQueue").setDurable(true));
          server.getConfiguration().addAMQPConnection(amqpConnection);
          server.start();
 
@@ -402,7 +416,8 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testRemoteDoesNotOfferTunnelingResultsInDefaultAMQPFormattedMessages() throws Exception {
       final Map<String, Object> brokerProperties = new HashMap<>();
       brokerProperties.put(AMQPMirrorControllerSource.BROKER_ID.toString(), "Test-Broker");
@@ -432,13 +447,13 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
          mirrorElement.setQueueCreation(true);
 
          AMQPBrokerConnectConfiguration amqpConnection =
-               new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+               new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.setUser("user");
          amqpConnection.setPassword("pass");
          amqpConnection.addElement(mirrorElement);
 
-         server.createQueue(new QueueConfiguration("myQueue").setDurable(true));
+         server.createQueue(QueueConfiguration.of("myQueue").setDurable(true));
          server.getConfiguration().addAMQPConnection(amqpConnection);
          server.start();
 
@@ -465,7 +480,8 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testTunnelingDisabledButRemoteOffersDoesNotUseTunneling() throws Exception {
       final Map<String, Object> brokerProperties = new HashMap<>();
       brokerProperties.put(AMQPMirrorControllerSource.BROKER_ID.toString(), "Test-Broker");
@@ -495,13 +511,13 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
          mirrorElement.setQueueCreation(true);
 
          AMQPBrokerConnectConfiguration amqpConnection =
-               new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+               new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.setUser("user");
          amqpConnection.setPassword("pass");
          amqpConnection.addElement(mirrorElement);
 
-         server.createQueue(new QueueConfiguration("myQueue").setDurable(true));
+         server.createQueue(QueueConfiguration.of("myQueue").setDurable(true));
          server.getConfiguration().addAMQPConnection(amqpConnection);
          server.start();
 
@@ -528,7 +544,8 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testMirrorConnectionRemainsUnchangedAfterConfigurationUpdate() throws Exception {
       final Map<String, Object> brokerProperties = new HashMap<>();
       brokerProperties.put(AMQPMirrorControllerSource.BROKER_ID.toString(), "Test-Broker");
@@ -558,7 +575,7 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
          mirror.setName("test");
 
          AMQPBrokerConnectConfiguration amqpConnection =
-            new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+            new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.setUser("user");
          amqpConnection.setPassword("pass");
@@ -584,7 +601,7 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
             mirrorUpdated.setName("test");
 
             AMQPBrokerConnectConfiguration amqpConnectionUpdated =
-               new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+               new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
             amqpConnectionUpdated.setReconnectAttempts(0);// No reconnects
             amqpConnectionUpdated.setUser("user1");
             amqpConnectionUpdated.setPassword("pass1");
@@ -616,7 +633,8 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testMirrorConnectionRemainsUnchangedAfterConfigurationRemoved() throws Exception {
       final Map<String, Object> brokerProperties = new HashMap<>();
       brokerProperties.put(AMQPMirrorControllerSource.BROKER_ID.toString(), "Test-Broker");
@@ -646,7 +664,7 @@ public class AMQPMirrorConnectionTest extends AmqpClientTestSupport {
          mirror.setName("test");
 
          AMQPBrokerConnectConfiguration amqpConnection =
-            new AMQPBrokerConnectConfiguration("testSimpleConnect", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+            new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.setUser("user");
          amqpConnection.setPassword("pass");

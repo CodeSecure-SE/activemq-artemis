@@ -39,7 +39,6 @@ import org.apache.activemq.artemis.core.journal.EncodingSupport;
 import org.apache.activemq.artemis.core.journal.Journal;
 import org.apache.activemq.artemis.core.journal.PreparedTransactionInfo;
 import org.apache.activemq.artemis.core.journal.RecordInfo;
-import org.apache.activemq.artemis.core.journal.TransactionFailureCallback;
 import org.apache.activemq.artemis.core.journal.impl.JournalFile;
 import org.apache.activemq.artemis.core.journal.impl.JournalImpl;
 import org.apache.activemq.artemis.core.journal.impl.JournalReaderCallback;
@@ -48,6 +47,7 @@ import org.apache.activemq.artemis.core.paging.impl.PageTransactionInfoImpl;
 import org.apache.activemq.artemis.core.persistence.config.PersistedBridgeConfiguration;
 import org.apache.activemq.artemis.core.persistence.config.PersistedDivertConfiguration;
 import org.apache.activemq.artemis.core.persistence.impl.journal.BatchingIDGenerator.IDCounterEncoding;
+import org.apache.activemq.artemis.core.persistence.impl.journal.codec.AckRetry;
 import org.apache.activemq.artemis.core.persistence.impl.journal.codec.CursorAckRecordEncoding;
 import org.apache.activemq.artemis.core.persistence.impl.journal.codec.DeliveryCountUpdateEncoding;
 import org.apache.activemq.artemis.core.persistence.impl.journal.codec.DuplicateIDEncoding;
@@ -89,6 +89,7 @@ import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalR
 import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.DUPLICATE_ID;
 import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.HEURISTIC_COMPLETION;
 import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ID_COUNTER_RECORD;
+import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ACK_RETRY;
 import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_CURSOR_COMPLETE;
 import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_CURSOR_COUNTER_INC;
 import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_CURSOR_COUNTER_VALUE;
@@ -388,22 +389,16 @@ public final class DescribeJournal {
       long preparedMessageCount = 0;
       long preparedLargeMessageCount = 0;
       Map<Long, Count> preparedMessageRefCount = new HashMap<>();
-      journal.load(records, preparedTransactions, new TransactionFailureCallback() {
-
-         @Override
-         public void failedTransaction(long transactionID,
-                                       List<RecordInfo> records1,
-                                       List<RecordInfo> recordsToDelete) {
-            bufferFailingTransactions.append("Transaction " + transactionID + " failed with these records:\n");
-            for (RecordInfo info : records1) {
-               bufferFailingTransactions.append("- " + describeRecord(info, safe) + "\n");
-            }
-
-            for (RecordInfo info : recordsToDelete) {
-               bufferFailingTransactions.append("- " + describeRecord(info, safe) + " <marked to delete>\n");
-            }
-
+      journal.load(records, preparedTransactions, (transactionID, records1, recordsToDelete) -> {
+         bufferFailingTransactions.append("Transaction " + transactionID + " failed with these records:\n");
+         for (RecordInfo info : records1) {
+            bufferFailingTransactions.append("- " + describeRecord(info, safe) + "\n");
          }
+
+         for (RecordInfo info : recordsToDelete) {
+            bufferFailingTransactions.append("- " + describeRecord(info, safe) + " <marked to delete>\n");
+         }
+
       }, false);
 
       for (RecordInfo info : records) {
@@ -764,6 +759,9 @@ public final class DescribeJournal {
 
          case ROLE_RECORD:
             return AbstractJournalStorageManager.newRoleEncoding(id, buffer);
+
+         case ACK_RETRY:
+            return AckRetry.getPersister().decode(buffer, null, null);
 
          default:
             return null;

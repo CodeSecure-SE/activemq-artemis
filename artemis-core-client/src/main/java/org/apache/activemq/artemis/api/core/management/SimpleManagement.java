@@ -20,6 +20,7 @@ package org.apache.activemq.artemis.api.core.management;
 import java.lang.invoke.MethodHandles;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -65,6 +66,10 @@ public class SimpleManagement implements AutoCloseable {
       return this;
    }
 
+   public String getUri() {
+      return uri;
+   }
+
    @Override
    public void close() throws Exception {
       if (session != null) {
@@ -81,6 +86,14 @@ public class SimpleManagement implements AutoCloseable {
       return simpleManagementLong("broker", "getCurrentTimeMillis");
    }
 
+   public boolean isReplicaSync() throws Exception {
+      return simpleManagementBoolean("broker", "isReplicaSync");
+   }
+
+   public void rebuildPageCounters() throws Exception {
+      simpleManagementVoid("broker", "rebuildPageCounters");
+   }
+
    /** Simple helper for management returning a string.*/
    public String simpleManagement(String resource, String method, Object... parameters) throws Exception {
       AtomicReference<String> responseString = new AtomicReference<>();
@@ -95,6 +108,18 @@ public class SimpleManagement implements AutoCloseable {
       return responseLong.get();
    }
 
+   /** Simple helper for management returning a long.*/
+   public boolean simpleManagementBoolean(String resource, String method, Object... parameters) throws Exception {
+      AtomicBoolean responseBoolean = new AtomicBoolean();
+      doManagement((m) -> setupCall(m, resource, method, parameters), m -> setBooleanResult(m, responseBoolean), SimpleManagement::failed);
+      return responseBoolean.get();
+   }
+
+   /** Simple helper for management void calls.*/
+   public void simpleManagementVoid(String resource, String method, Object... parameters) throws Exception {
+      doManagement((m) -> setupCall(m, resource, method, parameters), null, SimpleManagement::failed);
+   }
+
    public int simpleManagementInt(String resource, String method, Object... parameters) throws Exception {
       AtomicInteger responseInt = new AtomicInteger();
       doManagement((m) -> setupCall(m, resource, method, parameters), m -> setIntResult(m, responseInt), SimpleManagement::failed);
@@ -103,6 +128,10 @@ public class SimpleManagement implements AutoCloseable {
 
    public long getMessageCountOnQueue(String queueName) throws Exception {
       return simpleManagementLong(ResourceNames.QUEUE + queueName, "getMessageCount");
+   }
+
+   public long getMessageAddedOnQueue(String queueName) throws Exception {
+      return simpleManagementLong(ResourceNames.QUEUE + queueName, "getMessagesAdded");
    }
 
    public int getDeliveringCountOnQueue(String queueName) throws Exception {
@@ -172,6 +201,12 @@ public class SimpleManagement implements AutoCloseable {
       long resultLong = (long)ManagementHelper.getResult(m, Long.class);
       logger.debug("management result:: {}", resultLong);
       result.set(resultLong);
+   }
+
+   protected static void setBooleanResult(ClientMessage m, AtomicBoolean result) throws Exception {
+      boolean resultBoolean = (boolean)ManagementHelper.getResult(m, Boolean.class);
+      logger.debug("management result:: {}", resultBoolean);
+      result.set(resultBoolean);
    }
 
    protected static void setIntResult(ClientMessage m, AtomicInteger result) throws Exception {

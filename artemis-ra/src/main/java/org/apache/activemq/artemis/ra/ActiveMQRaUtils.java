@@ -189,19 +189,16 @@ public final class ActiveMQRaUtils {
     * JCA, we use this method to allow a JChannel object to be located.
     */
    public static JChannel locateJGroupsChannel(final String locatorClass, final String name) {
-      return AccessController.doPrivileged(new PrivilegedAction<JChannel>() {
-         @Override
-         public JChannel run() {
-            try {
-               ClassLoader loader = Thread.currentThread().getContextClassLoader();
-               Class<?> aClass = loader.loadClass(locatorClass);
-               Object o = aClass.newInstance();
-               Method m = aClass.getMethod("locateChannel", new Class[]{String.class});
-               return (JChannel) m.invoke(o, name);
-            } catch (Throwable e) {
-               logger.debug(e.getMessage(), e);
-               return null;
-            }
+      return AccessController.doPrivileged((PrivilegedAction<JChannel>) () -> {
+         try {
+            ClassLoader loader = Thread.currentThread().getContextClassLoader();
+            Class<?> aClass = loader.loadClass(locatorClass);
+            Object o = aClass.newInstance();
+            Method m = aClass.getMethod("locateChannel", new Class[]{String.class});
+            return (JChannel) m.invoke(o, name);
+         } catch (Throwable e) {
+            logger.debug(e.getMessage(), e);
+            return null;
          }
       });
    }
@@ -212,7 +209,7 @@ public final class ActiveMQRaUtils {
     * For that reason any class trying to do a privileged block should do with the AccessController directly.
     */
    private static Object safeInitNewInstance(final String className) {
-      return AccessController.doPrivileged(new PrivilegedAction<Object>() {
+      return AccessController.doPrivileged(new PrivilegedAction<>() {
          @Override
          public Object run() {
             ClassLoader loader = getClass().getClassLoader();

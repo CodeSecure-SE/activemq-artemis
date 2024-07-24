@@ -45,6 +45,7 @@ import org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederati
 import org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationQueueSenderController;
 import org.apache.activemq.artemis.protocol.amqp.connect.mirror.AMQPMirrorControllerSource;
 import org.apache.activemq.artemis.protocol.amqp.exceptions.ActiveMQAMQPException;
+import org.apache.activemq.artemis.protocol.amqp.exceptions.ActiveMQAMQPInternalErrorException;
 import org.apache.activemq.artemis.protocol.amqp.exceptions.ActiveMQAMQPSecurityException;
 import org.apache.activemq.artemis.protocol.amqp.logger.ActiveMQAMQPProtocolLogger;
 import org.apache.activemq.artemis.protocol.amqp.logger.ActiveMQAMQPProtocolMessageBundle;
@@ -79,7 +80,8 @@ import java.lang.invoke.MethodHandles;
 
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_ADDRESS_RECEIVER;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_CONTROL_LINK;
-import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_CONTROL_LINK_VALIDATION_ADDRESS;
+import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_BASE_VALIDATION_ADDRESS;
+import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_EVENT_LINK;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_QUEUE_RECEIVER;
 import static org.apache.activemq.artemis.protocol.amqp.proton.AmqpSupport.AMQP_LINK_INITIALIZER_KEY;
 import static org.apache.activemq.artemis.protocol.amqp.proton.AmqpSupport.FAILOVER_SERVER_LIST;
@@ -92,6 +94,19 @@ import static org.apache.activemq.artemis.protocol.amqp.proton.AmqpSupport.verif
 public class AMQPConnectionContext extends ProtonInitializable implements EventHandler {
 
    private static final Logger logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
+
+   public void disableAutoRead() {
+      handler.requireHandler();
+      connectionCallback.getTransportConnection().setAutoRead(false);
+      handler.setReadable(false);
+   }
+
+   public void enableAutoRead() {
+      handler.requireHandler();
+      connectionCallback.getTransportConnection().setAutoRead(true);
+      getHandler().setReadable(true);
+      flush();
+   }
 
    public static final Symbol CONNECTION_OPEN_FAILED = Symbol.valueOf("amqp:connection-establishment-failed");
    public static final String AMQP_CONTAINER_ID = "amqp-container-id";
@@ -403,6 +418,8 @@ public class AMQPConnectionContext extends ProtonInitializable implements EventH
             handleReplicaTargetLinkOpened(protonSession, receiver);
          } else if (isFederationControlLink(receiver)) {
             handleFederationControlLinkOpened(protonSession, receiver);
+         } else if (isFederationEventLink(receiver)) {
+            protonSession.addFederationEventProcessor(receiver);
          } else {
             protonSession.addReceiver(receiver);
          }
@@ -412,6 +429,8 @@ public class AMQPConnectionContext extends ProtonInitializable implements EventH
             protonSession.addSender(sender, new AMQPFederationAddressSenderController(protonSession));
          } else if (isFederationQueueReceiver(sender)) {
             protonSession.addSender(sender, new AMQPFederationQueueSenderController(protonSession));
+         } else if (isFederationEventLink(sender)) {
+            protonSession.addFederationEventDispatcher(sender);
          } else {
             protonSession.addSender(sender);
          }
@@ -421,7 +440,7 @@ public class AMQPConnectionContext extends ProtonInitializable implements EventH
    private void handleReplicaTargetLinkOpened(AMQPSessionContext protonSession, Receiver receiver) throws Exception {
       try {
          try {
-            protonSession.getSessionSPI().check(SimpleString.toSimpleString(receiver.getTarget().getAddress()), CheckType.SEND, getSecurityAuth());
+            protonSession.getSessionSPI().check(SimpleString.of(receiver.getTarget().getAddress()), CheckType.SEND, getSecurityAuth());
          } catch (ActiveMQSecurityException e) {
             throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.securityErrorCreatingProducer(e.getMessage());
          }
@@ -454,7 +473,7 @@ public class AMQPConnectionContext extends ProtonInitializable implements EventH
    private void handleFederationControlLinkOpened(AMQPSessionContext protonSession, Receiver receiver) throws Exception {
       try {
          try {
-            protonSession.getSessionSPI().check(SimpleString.toSimpleString(FEDERATION_CONTROL_LINK_VALIDATION_ADDRESS), CheckType.SEND, getSecurityAuth());
+            protonSession.getSessionSPI().check(SimpleString.of(FEDERATION_BASE_VALIDATION_ADDRESS), CheckType.SEND, getSecurityAuth());
          } catch (ActiveMQSecurityException e) {
             throw new ActiveMQAMQPSecurityException(
                "User does not have permission to attach to the federation control address");
@@ -478,6 +497,14 @@ public class AMQPConnectionContext extends ProtonInitializable implements EventH
 
    private static boolean isFederationControlLink(Receiver receiver) {
       return verifyDesiredCapability(receiver, FEDERATION_CONTROL_LINK);
+   }
+
+   private static boolean isFederationEventLink(Sender sender) {
+      return verifyDesiredCapability(sender, FEDERATION_EVENT_LINK);
+   }
+
+   private static boolean isFederationEventLink(Receiver receiver) {
+      return verifyDesiredCapability(receiver, FEDERATION_EVENT_LINK);
    }
 
    private static boolean isFederationQueueReceiver(Sender sender) {
@@ -722,6 +749,15 @@ public class AMQPConnectionContext extends ProtonInitializable implements EventH
          // this will also be used to flush the data directly into netty connection's executor
          handler.runLater(tickerRunnable);
       }
+   }
+
+   @Override
+   public void onTransportError(Transport transport) throws Exception {
+      final String errorMessage = transport.getCondition() != null && transport.getCondition().getDescription() != null ?
+         transport.getCondition().getDescription() : "Unknown Internal Error";
+
+      // Cleanup later after the any pending work gets sent to the remote via an IO flush.
+      runLater(() -> connectionCallback.getProtonConnectionDelegate().fail(new ActiveMQAMQPInternalErrorException(errorMessage)));
    }
 
    @Override

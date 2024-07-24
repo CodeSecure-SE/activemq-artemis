@@ -22,12 +22,16 @@ import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPF
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.ADDRESS_AUTO_DELETE_MSG_COUNT;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_ADDRESS_RECEIVER;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_CONTROL_LINK;
+import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_EVENT_LINK;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_QUEUE_RECEIVER;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_RECEIVER_PRIORITY;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationPolicySupport.DEFAULT_QUEUE_RECEIVER_PRIORITY_ADJUSTMENT;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationPolicySupport.FEDERATED_ADDRESS_SOURCE_PROPERTIES;
 import static org.hamcrest.CoreMatchers.allOf;
 import static org.hamcrest.CoreMatchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
 import java.lang.invoke.MethodHandles;
 import java.net.URI;
 import java.net.URL;
@@ -65,7 +69,8 @@ import org.apache.activemq.artemis.tests.util.CFUtil;
 import org.apache.activemq.artemis.utils.ReusableLatch;
 import org.apache.activemq.artemis.utils.Wait;
 import org.apache.qpid.protonj2.test.driver.ProtonTestServer;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -88,7 +93,8 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
       return createServer(AMQP_PORT, false);
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testFederationConfigurationWithoutChangesIsIgnoredOnUpdate() throws Exception {
       try (ProtonTestServer peer = new ProtonTestServer()) {
          peer.expectSASLAnonymousConnect();
@@ -98,6 +104,10 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
                             .withDesiredCapability(FEDERATION_CONTROL_LINK.toString())
                             .respond()
                             .withOfferedCapabilities(FEDERATION_CONTROL_LINK.toString());
+         peer.expectAttach().ofReceiver()
+                            .withDesiredCapability(FEDERATION_EVENT_LINK.toString())
+                            .respondInKind();
+         peer.expectFlow().withLinkCredit(10);
          peer.start();
 
          final URI remoteURI = peer.getServerURI();
@@ -111,17 +121,17 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          receiveFromAddress.setAutoDeleteMessageCount(-1L);
 
          final AMQPFederatedBrokerConnectionElement element = new AMQPFederatedBrokerConnectionElement();
-         element.setName("sample-federation");
+         element.setName(getTestName());
          element.addLocalAddressPolicy(receiveFromAddress);
 
          final AMQPBrokerConnectConfiguration amqpConnection =
-            new AMQPBrokerConnectConfiguration("test-address-federation", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+            new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.addElement(element);
 
          server.getConfiguration().addAMQPConnection(amqpConnection);
          server.start();
-         server.addAddressInfo(new AddressInfo(SimpleString.toSimpleString("test"), RoutingType.MULTICAST));
+         server.addAddressInfo(new AddressInfo(SimpleString.of("test"), RoutingType.MULTICAST));
 
          final Map<String, Object> expectedSourceProperties = new HashMap<>();
          expectedSourceProperties.put(ADDRESS_AUTO_DELETE, true);
@@ -131,7 +141,7 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          peer.waitForScriptToComplete(5, TimeUnit.SECONDS);
          peer.expectAttach().ofReceiver()
                             .withDesiredCapability(FEDERATION_ADDRESS_RECEIVER.toString())
-                            .withName(allOf(containsString("sample-federation"),
+                            .withName(allOf(containsString(getTestName()),
                                             containsString("test"),
                                             containsString("address-receiver"),
                                             containsString(server.getNodeID().toString())))
@@ -158,7 +168,7 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
             updatedReceiveFromAddress.setAutoDeleteMessageCount(-1L);
 
             final AMQPFederatedBrokerConnectionElement updatedElement = new AMQPFederatedBrokerConnectionElement();
-            updatedElement.setName("sample-federation");
+            updatedElement.setName(getTestName());
             updatedElement.addLocalAddressPolicy(updatedReceiveFromAddress);
 
             amqpConnection.getConnectionElements().clear();
@@ -182,7 +192,8 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testFederationConnectsToSecondPeerWhenConfigurationUpdatedWithNewConnection() throws Exception {
       try (ProtonTestServer peer = new ProtonTestServer()) {
 
@@ -193,6 +204,10 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
                             .withDesiredCapability(FEDERATION_CONTROL_LINK.toString())
                             .respond()
                             .withOfferedCapabilities(FEDERATION_CONTROL_LINK.toString());
+         peer.expectAttach().ofReceiver()
+                            .withDesiredCapability(FEDERATION_EVENT_LINK.toString())
+                            .respondInKind();
+         peer.expectFlow().withLinkCredit(10);
          peer.start();
 
          final URI remoteURI = peer.getServerURI();
@@ -206,17 +221,17 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          receiveFromAddress.setAutoDeleteMessageCount(-1L);
 
          final AMQPFederatedBrokerConnectionElement element = new AMQPFederatedBrokerConnectionElement();
-         element.setName("sample-federation");
+         element.setName(getTestName() + ":1");
          element.addLocalAddressPolicy(receiveFromAddress);
 
          final AMQPBrokerConnectConfiguration amqpConnection =
-            new AMQPBrokerConnectConfiguration("test-address-federation", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+            new AMQPBrokerConnectConfiguration(getTestName() + ":1", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.addElement(element);
 
          server.getConfiguration().addAMQPConnection(amqpConnection);
          server.start();
-         server.addAddressInfo(new AddressInfo(SimpleString.toSimpleString("test"), RoutingType.MULTICAST));
+         server.addAddressInfo(new AddressInfo(SimpleString.of("test"), RoutingType.MULTICAST));
 
          final Map<String, Object> expectedSourceProperties = new HashMap<>();
          expectedSourceProperties.put(ADDRESS_AUTO_DELETE, true);
@@ -226,7 +241,7 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          peer.waitForScriptToComplete(5, TimeUnit.SECONDS);
          peer.expectAttach().ofReceiver()
                             .withDesiredCapability(FEDERATION_ADDRESS_RECEIVER.toString())
-                            .withName(allOf(containsString("sample-federation"),
+                            .withName(allOf(containsString(getTestName() + ":1"),
                                             containsString("test"),
                                             containsString("address-receiver"),
                                             containsString(server.getNodeID().toString())))
@@ -251,6 +266,20 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
                                    .withDesiredCapability(FEDERATION_CONTROL_LINK.toString())
                                    .respond()
                                    .withOfferedCapabilities(FEDERATION_CONTROL_LINK.toString());
+               peer2.expectAttach().ofReceiver()
+                                   .withDesiredCapability(FEDERATION_EVENT_LINK.toString())
+                                   .respondInKind();
+               peer2.expectFlow().withLinkCredit(10);
+               peer2.expectAttach().ofReceiver()
+                                   .withDesiredCapability(FEDERATION_ADDRESS_RECEIVER.toString())
+                                   .withName(allOf(containsString(getTestName() + ":2"),
+                                                   containsString("test"),
+                                                   containsString("address-receiver"),
+                                                   containsString(server.getNodeID().toString())))
+                                   .withProperty(FEDERATED_ADDRESS_SOURCE_PROPERTIES.toString(), expectedSourceProperties)
+                                   .respond()
+                                   .withOfferedCapabilities(FEDERATION_ADDRESS_RECEIVER.toString());
+               peer2.expectFlow().withLinkCredit(1000);
                peer2.start();
 
                final URI remoteURI2 = peer2.getServerURI();
@@ -268,29 +297,17 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
                updatedReceiveFromAddress.setAutoDeleteMessageCount(-1L);
 
                final AMQPFederatedBrokerConnectionElement updatedElement = new AMQPFederatedBrokerConnectionElement();
-               updatedElement.setName("sample-federation-2");
+               updatedElement.setName(getTestName() + ":2");
                updatedElement.addLocalAddressPolicy(updatedReceiveFromAddress);
 
                final AMQPBrokerConnectConfiguration updatedAmqpConnection =
-                  new AMQPBrokerConnectConfiguration("test-address-federation-2", "tcp://" + remoteURI2.getHost() + ":" + remoteURI2.getPort());
+                  new AMQPBrokerConnectConfiguration(getTestName() + ":2", "tcp://" + remoteURI2.getHost() + ":" + remoteURI2.getPort());
                updatedAmqpConnection.setReconnectAttempts(0);// No reconnects
                updatedAmqpConnection.addElement(updatedElement);
 
                server.getConfiguration().addAMQPConnection(updatedAmqpConnection);
 
                protocolFactory.updateProtocolServices(server, Collections.emptyList());
-
-               peer2.waitForScriptToComplete(5, TimeUnit.SECONDS);
-               peer2.expectAttach().ofReceiver()
-                                   .withDesiredCapability(FEDERATION_ADDRESS_RECEIVER.toString())
-                                   .withName(allOf(containsString("sample-federation"),
-                                                   containsString("test"),
-                                                   containsString("address-receiver"),
-                                                   containsString(server.getNodeID().toString())))
-                                   .withProperty(FEDERATED_ADDRESS_SOURCE_PROPERTIES.toString(), expectedSourceProperties)
-                                   .respond()
-                                   .withOfferedCapabilities(FEDERATION_ADDRESS_RECEIVER.toString());
-               peer2.expectFlow().withLinkCredit(1000);
 
                peer2.waitForScriptToComplete(5, TimeUnit.SECONDS);
                peer2.close();
@@ -302,7 +319,8 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testFederationDisconnectsFromExistingPeerIfConfigurationRemoved() throws Exception {
       try (ProtonTestServer peer = new ProtonTestServer()) {
 
@@ -313,6 +331,10 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
                             .withDesiredCapability(FEDERATION_CONTROL_LINK.toString())
                             .respond()
                             .withOfferedCapabilities(FEDERATION_CONTROL_LINK.toString());
+         peer.expectAttach().ofReceiver()
+                            .withDesiredCapability(FEDERATION_EVENT_LINK.toString())
+                            .respondInKind();
+         peer.expectFlow().withLinkCredit(10);
          peer.start();
 
          final URI remoteURI = peer.getServerURI();
@@ -326,17 +348,17 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          receiveFromAddress.setAutoDeleteMessageCount(-1L);
 
          final AMQPFederatedBrokerConnectionElement element = new AMQPFederatedBrokerConnectionElement();
-         element.setName("sample-federation");
+         element.setName(getTestName());
          element.addLocalAddressPolicy(receiveFromAddress);
 
          final AMQPBrokerConnectConfiguration amqpConnection =
-            new AMQPBrokerConnectConfiguration("test-address-federation", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+            new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.addElement(element);
 
          server.getConfiguration().addAMQPConnection(amqpConnection);
          server.start();
-         server.addAddressInfo(new AddressInfo(SimpleString.toSimpleString("test"), RoutingType.MULTICAST));
+         server.addAddressInfo(new AddressInfo(SimpleString.of("test"), RoutingType.MULTICAST));
 
          final Map<String, Object> expectedSourceProperties = new HashMap<>();
          expectedSourceProperties.put(ADDRESS_AUTO_DELETE, true);
@@ -346,7 +368,7 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          peer.waitForScriptToComplete(5, TimeUnit.SECONDS);
          peer.expectAttach().ofReceiver()
                             .withDesiredCapability(FEDERATION_ADDRESS_RECEIVER.toString())
-                            .withName(allOf(containsString("sample-federation"),
+                            .withName(allOf(containsString(getTestName()),
                                             containsString("test"),
                                             containsString("address-receiver"),
                                             containsString(server.getNodeID().toString())))
@@ -387,7 +409,8 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testFederationUpdatesPolicyAndFederatesQueueInsteadOfAddress() throws Exception {
       try (ProtonTestServer peer = new ProtonTestServer()) {
 
@@ -398,6 +421,10 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
                             .withDesiredCapability(FEDERATION_CONTROL_LINK.toString())
                             .respond()
                             .withOfferedCapabilities(FEDERATION_CONTROL_LINK.toString());
+         peer.expectAttach().ofReceiver()
+                            .withDesiredCapability(FEDERATION_EVENT_LINK.toString())
+                            .respondInKind();
+         peer.expectFlow().withLinkCredit(10);
          peer.start();
 
          final URI remoteURI = peer.getServerURI();
@@ -411,17 +438,17 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          receiveFromAddress.setAutoDeleteMessageCount(-1L);
 
          final AMQPFederatedBrokerConnectionElement element = new AMQPFederatedBrokerConnectionElement();
-         element.setName("sample-federation");
+         element.setName(getTestName());
          element.addLocalAddressPolicy(receiveFromAddress);
 
          final AMQPBrokerConnectConfiguration amqpConnection =
-            new AMQPBrokerConnectConfiguration("test-federation", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+            new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
          amqpConnection.setReconnectAttempts(0);// No reconnects
          amqpConnection.addElement(element);
 
          server.getConfiguration().addAMQPConnection(amqpConnection);
          server.start();
-         server.addAddressInfo(new AddressInfo(SimpleString.toSimpleString("test"), RoutingType.MULTICAST));
+         server.addAddressInfo(new AddressInfo(SimpleString.of("test"), RoutingType.MULTICAST));
 
          final Map<String, Object> expectedSourceProperties = new HashMap<>();
          expectedSourceProperties.put(ADDRESS_AUTO_DELETE, true);
@@ -431,7 +458,7 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          peer.waitForScriptToComplete(5, TimeUnit.SECONDS);
          peer.expectAttach().ofReceiver()
                             .withDesiredCapability(FEDERATION_ADDRESS_RECEIVER.toString())
-                            .withName(allOf(containsString("sample-federation"),
+                            .withName(allOf(containsString(getTestName()),
                                             containsString("test"),
                                             containsString("address-receiver"),
                                             containsString(server.getNodeID().toString())))
@@ -461,8 +488,12 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
                                .respond()
                                .withOfferedCapabilities(FEDERATION_CONTROL_LINK.toString());
             peer.expectAttach().ofReceiver()
+                               .withDesiredCapability(FEDERATION_EVENT_LINK.toString())
+                               .respondInKind();
+            peer.expectFlow().withLinkCredit(10);
+            peer.expectAttach().ofReceiver()
                                .withDesiredCapability(FEDERATION_QUEUE_RECEIVER.toString())
-                               .withName(allOf(containsString("sample-federation"),
+                               .withName(allOf(containsString(getTestName()),
                                                containsString("queue::queue"),
                                                containsString("queue-receiver"),
                                                containsString(server.getNodeID().toString())))
@@ -487,11 +518,11 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
             updatedReceiveFromQueue.addToIncludes("*", "queue");
 
             final AMQPFederatedBrokerConnectionElement updatedElement = new AMQPFederatedBrokerConnectionElement();
-            updatedElement.setName("sample-federation");
+            updatedElement.setName(getTestName());
             updatedElement.addLocalQueuePolicy(updatedReceiveFromQueue);
 
             final AMQPBrokerConnectConfiguration updatedAmqpConnection =
-               new AMQPBrokerConnectConfiguration("test-federation", "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
+               new AMQPBrokerConnectConfiguration(getTestName(), "tcp://" + remoteURI.getHost() + ":" + remoteURI.getPort());
             updatedAmqpConnection.setReconnectAttempts(0);// No reconnects
             updatedAmqpConnection.addElement(updatedElement);
 
@@ -506,7 +537,8 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testReloadAmqpConnectionAddressPolicyMatches() throws Exception {
       server.start();
 
@@ -547,7 +579,7 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          latch.await(10, TimeUnit.SECONDS);
 
          // Demand on local address should trigger receiver on remote.
-         Wait.assertTrue(() -> server.addressQuery(SimpleString.toSimpleString("address1")).isExists());
+         Wait.assertTrue(() -> server.addressQuery(SimpleString.of("address1")).isExists());
 
          final TextMessage message = session.createTextMessage("test");
 
@@ -564,11 +596,11 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          latch.await(10, TimeUnit.SECONDS);
 
          // Demand on local address should trigger receiver on remote.
-         Wait.assertTrue(() -> server.addressQuery(SimpleString.toSimpleString("address2")).isExists());
+         Wait.assertTrue(() -> server.addressQuery(SimpleString.of("address2")).isExists());
 
          // Should arrive on the original federated Address and the now added address
          // but we need to await the federation being setup and a binding added.
-         Wait.assertTrue(() -> server.bindingQuery(SimpleString.toSimpleString("address2")).getQueueNames().size() > 0);
+         Wait.assertTrue(() -> server.bindingQuery(SimpleString.of("address2")).getQueueNames().size() > 0);
 
          address1Producer.send(message);
          address2Producer.send(message);
@@ -581,13 +613,14 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testReloadAmqpConnectionQueuePolicyMatches() throws Exception {
       server.start();
-      server.createQueue(new QueueConfiguration("queue1").setRoutingType(RoutingType.ANYCAST)
+      server.createQueue(QueueConfiguration.of("queue1").setRoutingType(RoutingType.ANYCAST)
                                                          .setAddress("queue1")
                                                          .setAutoCreated(false));
-      server.createQueue(new QueueConfiguration("queue2").setRoutingType(RoutingType.ANYCAST)
+      server.createQueue(QueueConfiguration.of("queue2").setRoutingType(RoutingType.ANYCAST)
                                                          .setAddress("queue2")
                                                          .setAutoCreated(false));
 
@@ -628,7 +661,7 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          final MessageProducer queue2Producer = serverSession.createProducer(queue2);
 
          // Demand on local queue should trigger receiver on remote.
-         Wait.assertTrue(() -> server.queueQuery(SimpleString.toSimpleString("queue1")).isExists());
+         Wait.assertTrue(() -> server.queueQuery(SimpleString.of("queue1")).isExists());
 
          final TextMessage message = session.createTextMessage("test");
 
@@ -639,7 +672,7 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          // currently federated.
 
          Wait.assertTrue(() ->
-            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.toSimpleString("queue1")).getMessageCount() == 1);
+            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.of("queue1")).getMessageCount() == 1);
 
          assertNotNull(queue1Consumer.receiveNoWait());
          assertNull(queue2Consumer.receiveNoWait());
@@ -651,16 +684,16 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          latch.await(10, TimeUnit.SECONDS);
 
          // Demand on local queue should trigger receiver on remote.
-         Wait.assertTrue(() -> server.queueQuery(SimpleString.toSimpleString("queue2")).isExists());
+         Wait.assertTrue(() -> server.queueQuery(SimpleString.of("queue2")).isExists());
 
          // Should arrive on the original federated Queue and the updated Queue as it is now federated
 
          queue1Producer.send(message);
 
          Wait.assertTrue(() ->
-            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.toSimpleString("queue1")).getMessageCount() == 1);
+            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.of("queue1")).getMessageCount() == 1);
          Wait.assertTrue(() ->
-            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.toSimpleString("queue2")).getMessageCount() == 1);
+            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.of("queue2")).getMessageCount() == 1);
 
          assertNotNull(queue1Consumer.receiveNoWait());
          assertNotNull(queue2Consumer.receiveNoWait());
@@ -670,10 +703,11 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testReloadAmqpConnectionAddressPolicyReplacedWithQueuePolicy() throws Exception {
       server.start();
-      server.createQueue(new QueueConfiguration("queue1").setRoutingType(RoutingType.ANYCAST)
+      server.createQueue(QueueConfiguration.of("queue1").setRoutingType(RoutingType.ANYCAST)
                                                          .setAddress("queue1")
                                                          .setAutoCreated(false));
 
@@ -714,8 +748,8 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          latch.await(10, TimeUnit.SECONDS);
 
          // Demand on local address should trigger receiver on remote.
-         Wait.assertTrue(() -> server.addressQuery(SimpleString.toSimpleString("address1")).isExists());
-         Wait.assertTrue(() -> server.queueQuery(SimpleString.toSimpleString("queue1")).isExists());
+         Wait.assertTrue(() -> server.addressQuery(SimpleString.of("address1")).isExists());
+         Wait.assertTrue(() -> server.queueQuery(SimpleString.of("queue1")).isExists());
 
          final TextMessage message = session.createTextMessage("test");
 
@@ -736,20 +770,21 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
 
          // The original address consumer should have gone away and not returned when the federation
          // connection was recreated.
-         Wait.assertTrue(() -> server.bindingQuery(SimpleString.toSimpleString("address2")).getQueueNames().size() == 0);
+         Wait.assertTrue(() -> server.bindingQuery(SimpleString.of("address2")).getQueueNames().size() == 0);
 
       } finally  {
          embeddedActiveMQ.stop();
       }
    }
 
-   @Test(timeout = 20000)
+   @Test
+   @Timeout(20)
    public void testReloadAmqpConnectionQueuePolicyMatchesFromBrokerProperties() throws Exception {
       server.start();
-      server.createQueue(new QueueConfiguration("queue1").setRoutingType(RoutingType.ANYCAST)
+      server.createQueue(QueueConfiguration.of("queue1").setRoutingType(RoutingType.ANYCAST)
                                                          .setAddress("queue1")
                                                          .setAutoCreated(false));
-      server.createQueue(new QueueConfiguration("queue2").setRoutingType(RoutingType.ANYCAST)
+      server.createQueue(QueueConfiguration.of("queue2").setRoutingType(RoutingType.ANYCAST)
                                                          .setAddress("queue2")
                                                          .setAutoCreated(false));
 
@@ -796,8 +831,8 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          final MessageProducer queue2Producer = serverSession.createProducer(queue2);
 
          // Demand on local queue should trigger receiver on remote.
-         Wait.assertTrue(() -> server.queueQuery(SimpleString.toSimpleString("queue1")).isExists());
-         Wait.assertTrue(() -> server.queueQuery(SimpleString.toSimpleString("queue2")).isExists());
+         Wait.assertTrue(() -> server.queueQuery(SimpleString.of("queue1")).isExists());
+         Wait.assertTrue(() -> server.queueQuery(SimpleString.of("queue2")).isExists());
 
          final TextMessage message = session.createTextMessage("test");
 
@@ -806,7 +841,7 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
 
          // Should get message sent to the single federated queue
          Wait.assertTrue(() ->
-            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.toSimpleString("queue1")).getMessageCount() == 1);
+            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.of("queue1")).getMessageCount() == 1);
 
          assertNotNull(queue1Consumer.receiveNoWait());
          assertNull(queue2Consumer.receiveNoWait());
@@ -818,17 +853,17 @@ public class AMQPFederationConfigurationReloadTest extends AmqpClientTestSupport
          latch.await(10, TimeUnit.SECONDS);
 
          // Demand on local queue should trigger receiver on remote.
-         Wait.assertTrue(() -> server.queueQuery(SimpleString.toSimpleString("queue1")).isExists());
-         Wait.assertTrue(() -> server.queueQuery(SimpleString.toSimpleString("queue2")).isExists());
+         Wait.assertTrue(() -> server.queueQuery(SimpleString.of("queue1")).isExists());
+         Wait.assertTrue(() -> server.queueQuery(SimpleString.of("queue2")).isExists());
 
          // Send another message to the originally federated queue
          queue1Producer.send(message);
 
          // Should arrive on the federated Queues now that the broker configuration has been reloaded.
          Wait.assertTrue(() ->
-            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.toSimpleString("queue1")).getMessageCount() == 1);
+            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.of("queue1")).getMessageCount() == 1);
          Wait.assertTrue(() ->
-            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.toSimpleString("queue2")).getMessageCount() == 1);
+            embeddedActiveMQ.getActiveMQServer().queueQuery(SimpleString.of("queue2")).getMessageCount() == 1);
 
          assertNotNull(queue1Consumer.receiveNoWait());
          assertNotNull(queue2Consumer.receiveNoWait());

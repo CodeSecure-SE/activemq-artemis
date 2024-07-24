@@ -16,15 +16,6 @@
  */
 package org.apache.activemq.artemis.tests.integration.openwire;
 
-import org.apache.activemq.artemis.api.core.QueueConfiguration;
-import org.apache.activemq.artemis.api.core.RoutingType;
-import org.apache.activemq.artemis.api.core.SimpleString;
-import org.apache.activemq.artemis.core.config.Configuration;
-import org.apache.activemq.artemis.core.security.Role;
-import org.apache.activemq.artemis.spi.core.security.ActiveMQJAASSecurityManager;
-import org.junit.Before;
-import org.junit.Test;
-
 import javax.jms.Connection;
 import javax.jms.DeliveryMode;
 import javax.jms.JMSException;
@@ -34,10 +25,20 @@ import javax.jms.Session;
 import java.util.HashSet;
 import java.util.Set;
 
+import org.apache.activemq.artemis.api.core.QueueConfiguration;
+import org.apache.activemq.artemis.api.core.RoutingType;
+import org.apache.activemq.artemis.core.config.Configuration;
+import org.apache.activemq.artemis.core.security.Role;
+import org.apache.activemq.artemis.spi.core.security.ActiveMQJAASSecurityManager;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.fail;
+
 public class SecurityOpenWireTest extends BasicOpenWireTest {
 
    @Override
-   @Before
+   @BeforeEach
    public void setUp() throws Exception {
       //this system property is used to construct the executor in
       //org.apache.activemq.transport.AbstractInactivityMonitor.createExecutor()
@@ -62,14 +63,14 @@ public class SecurityOpenWireTest extends BasicOpenWireTest {
    @Test
    public void testSendNoAuth() throws Exception {
       Set<Role> roles = new HashSet<>();
-      roles.add(new Role("programmers", false, false, false, false, false, false, false, false, false, false));
+      roles.add(new Role("programmers", false, false, false, false, false, false, false, false, false, false, false, false));
 
       server.getSecurityRepository().addMatch("denyQ", roles);
-      SimpleString denyQ = new SimpleString("denyQ");
-      server.createQueue(new QueueConfiguration(denyQ).setRoutingType(RoutingType.ANYCAST));
-      try (Connection connection = factory.createConnection("denyQ", "denyQ")) {
+      String denyQ = "denyQ";
+      server.createQueue(QueueConfiguration.of(denyQ).setRoutingType(RoutingType.ANYCAST));
+      try (Connection connection = factory.createConnection(denyQ, denyQ)) {
          Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-         Queue queue = session.createQueue("denyQ");
+         Queue queue = session.createQueue(denyQ);
          MessageProducer producer = session.createProducer(queue);
          producer.setDeliveryMode(DeliveryMode.PERSISTENT);
          try {

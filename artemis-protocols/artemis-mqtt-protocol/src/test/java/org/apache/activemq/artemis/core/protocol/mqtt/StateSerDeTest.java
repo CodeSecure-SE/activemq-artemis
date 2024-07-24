@@ -17,24 +17,26 @@
 
 package org.apache.activemq.artemis.core.protocol.mqtt;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.netty.handler.codec.mqtt.MqttSubscriptionOption;
 import io.netty.handler.codec.mqtt.MqttTopicSubscription;
 import org.apache.activemq.artemis.api.core.Pair;
 import org.apache.activemq.artemis.core.message.impl.CoreMessage;
 import org.apache.activemq.artemis.utils.RandomUtil;
-import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 public class StateSerDeTest {
 
-   @Test(timeout = 30000)
+   @Test
+   @Timeout(30)
    public void testSerDe() throws Exception {
       for (int i = 0; i < 500; i++) {
          String clientId = RandomUtil.randomString();
-         MQTTSessionState unserialized = new MQTTSessionState(clientId, null);
+         MQTTSessionState unserialized = new MQTTSessionState(clientId);
          Integer subscriptionIdentifier = RandomUtil.randomPositiveIntOrNull();
          for (int j = 0; j < RandomUtil.randomInterval(1, 50); j++) {
             MqttTopicSubscription sub = new MqttTopicSubscription(RandomUtil.randomString(),
@@ -46,7 +48,7 @@ public class StateSerDeTest {
          }
 
          CoreMessage serializedState = MQTTStateManager.serializeState(unserialized, 0);
-         MQTTSessionState deserialized = new MQTTSessionState(serializedState, null);
+         MQTTSessionState deserialized = new MQTTSessionState(serializedState);
 
          assertEquals(unserialized.getClientId(), deserialized.getClientId());
          for (Pair<MqttTopicSubscription, Integer> unserializedEntry : unserialized.getSubscriptionsPlusID()) {

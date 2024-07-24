@@ -19,6 +19,7 @@ package org.apache.activemq.artemis.core.paging;
 import java.io.File;
 import java.util.Collection;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import org.apache.activemq.artemis.api.core.Message;
 import org.apache.activemq.artemis.api.core.RefCountMessageListener;
@@ -69,6 +70,10 @@ public interface PagingStore extends ActiveMQComponent, RefCountMessageListener 
 
    AddressFullMessagePolicy getAddressFullMessagePolicy();
 
+   default PagingStore enforceAddressFullMessagePolicy(AddressFullMessagePolicy enforcedAddressFullMessagePolicy) {
+      return this;
+   }
+
    PageFullMessagePolicy getPageFullMessagePolicy();
 
    Long getPageLimitMessages();
@@ -87,6 +92,8 @@ public interface PagingStore extends ActiveMQComponent, RefCountMessageListener 
    int getPageSizeBytes();
 
    long getAddressSize();
+
+   long getAddressElements();
 
    long getMaxSize();
 
@@ -126,10 +133,13 @@ public interface PagingStore extends ActiveMQComponent, RefCountMessageListener 
     */
    boolean page(Message message, Transaction tx, RouteContextList listCtx) throws Exception;
 
+   boolean page(Message message, Transaction tx, RouteContextList listCtx, Function<Message, Message> pageDecorator) throws Exception;
+
    Page usePage(long page);
 
    /** Use this method when you want to use the cache of used pages. If you are just using offline (e.g. print-data), use the newPageObject method.*/
    Page usePage(long page, boolean create);
+   Page usePage(long page, boolean createEntry, boolean createFile);
 
    Page newPageObject(long page) throws Exception;
 
@@ -171,10 +181,14 @@ public interface PagingStore extends ActiveMQComponent, RefCountMessageListener 
     * @param size
     * @param sizeOnly if false we won't increment the number of messages. (add references for example)
     */
-   void addSize(int size, boolean sizeOnly);
+   void addSize(int size, boolean sizeOnly, boolean affectGlobal);
+
+   default void addSize(int size, boolean sizeOnly) {
+      addSize(size, sizeOnly, true);
+   }
 
    default void addSize(int size) {
-      addSize(size, false);
+      addSize(size, false, true);
    }
 
    boolean checkMemory(Runnable runnable, Consumer<AtomicRunnable> blockedCallback);

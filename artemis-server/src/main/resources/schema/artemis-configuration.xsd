@@ -455,6 +455,14 @@
             </xsd:annotation>
          </xsd:element>
 
+         <xsd:element name="mqtt-session-state-persistence-timeout" type="xsd:long" default="5000" maxOccurs="1" minOccurs="0">
+            <xsd:annotation>
+               <xsd:documentation>
+                  how long (in ms) to wait to persist MQTT session state
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:element>
+
          <xsd:element ref="connectors" maxOccurs="1" minOccurs="0"/>
 
          <xsd:element ref="acceptors" maxOccurs="1" minOccurs="0"/>
@@ -907,6 +915,48 @@
             </xsd:annotation>
          </xsd:element>
 
+         <xsd:element name="mirror-ack-manager-queue-attempts" type="xsd:int" maxOccurs="1" minOccurs="0" default="5">
+            <xsd:annotation>
+               <xsd:documentation>
+                  The number of times a mirror target would retry an acknowledgement on the queue before scanning page files for the message.
+
+                  This is exposed as mirrorAckManagerQueueAttempts on broker properties.
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:element>
+
+         <xsd:element name="mirror-ack-manager-page-attempts" type="xsd:int" maxOccurs="1" minOccurs="0" default="2">
+            <xsd:annotation>
+               <xsd:documentation>
+                  The number of times a mirror target would retry an acknowledgement on paging.
+
+                  This is exposed as mirrorAckManagerPageAttempts on broker properties.
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:element>
+
+         <xsd:element name="mirror-ack-manager-retry-delay" type="xsd:int" maxOccurs="1" minOccurs="0" default="100">
+            <xsd:annotation>
+               <xsd:documentation>
+                  Period in milliseconds for which retries are going to be exercised.
+                  This is exposed as mirrorAckManagerRetryDelay on broker properties.
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:element>
+
+         <xsd:element name="mirror-page-transaction" type="xsd:boolean" maxOccurs="1" minOccurs="0" default="false">
+            <xsd:annotation>
+               <xsd:documentation>
+                  Should Mirror use Page Transactions When target destinations is paging?
+                  When a target queue on the mirror is paged, the mirror will not record a page transaction for every message.
+                  The default is false, and the overhead of paged messages will be smaller, but there is a possibility of eventual duplicates in case of interrupted communication between the mirror source and target.
+                  If you set this to true there will be a record stored on the journal for the page-transaction additionally to the record in the page store.
+
+                  This is exposed as mirrorPageTransactions on broker properties.
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:element>
+
          <xsd:element name="suppress-session-notifications" type="xsd:boolean" default="false" maxOccurs="1" minOccurs="0">
             <xsd:annotation>
                <xsd:documentation>
@@ -923,6 +973,33 @@
                   The characters that mark a "literal" match. A literal match means the setting(s) will only apply to
                   the exact match regardless of wildcards. If this setting is not omitted then it must be two
                   characters - the start marker and the end marker.
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:element>
+
+         <xsd:element name="view-permission-method-match-pattern" type="xsd:string" default="" maxOccurs="1" minOccurs="0">
+            <xsd:annotation>
+               <xsd:documentation>
+                  The regular expression pattern to match management or JMX operations that require the 'view' permission
+                  in your security-settings. Operations that don't match will default to the 'update' permission.
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:element>
+
+         <xsd:element name="management-message-rbac" type="xsd:boolean" default="false" maxOccurs="1" minOccurs="0">
+            <xsd:annotation>
+               <xsd:documentation>
+                  Whether to apply RBAC based on security-settings for management operations when accessed through messages sent to the management address.
+                  When set, the 'view' and 'update' permissions are applied to individual management operations based on the message contents. The `manage` permissions is still required to send the messages.
+                  The security-settings match addresses will use the management-rbac-prefix prefix.
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:element>
+
+         <xsd:element name="management-rbac-prefix" type="xsd:string" default="mops" maxOccurs="1" minOccurs="0">
+            <xsd:annotation>
+               <xsd:documentation>
+                  The prefix for security-settings match addresses that control RBAC for management operations. Only configure a value if the default causes a clash in your security settings match criteria.
                </xsd:documentation>
             </xsd:annotation>
          </xsd:element>
@@ -1044,6 +1121,37 @@
             local port to which the datagram socket is bound to
          </xsd:documentation>
       </xsd:annotation>
+   </xsd:element>
+
+   <xsd:element name="discovery-type" abstract="true"/>
+
+   <xsd:element name="static-connectors" substitutionGroup="discovery-type">
+      <xsd:complexType>
+         <xsd:sequence>
+            <xsd:element name="connector-ref" type="xsd:string" maxOccurs="unbounded" minOccurs="1"/>
+         </xsd:sequence>
+         <xsd:attribute name="allow-direct-connections-only" default="false" type="xsd:boolean" use="optional">
+            <xsd:annotation>
+               <xsd:documentation>
+                  restricts a clusters connections to the listed connector-ref's
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:attribute>
+         <xsd:attributeGroup ref="xml:specialAttrs"/>
+      </xsd:complexType>
+   </xsd:element>
+
+   <xsd:element name="discovery-group-ref" substitutionGroup="discovery-type">
+      <xsd:complexType>
+         <xsd:attribute name="discovery-group-name" type="xsd:IDREF" use="required">
+            <xsd:annotation>
+               <xsd:documentation>
+                  name of the discovery group to use for this connection
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:attribute>
+         <xsd:attributeGroup ref="xml:specialAttrs"/>
+      </xsd:complexType>
    </xsd:element>
 
    <!-- BROADCAST GROUP CONFIGURATION -->
@@ -1214,13 +1322,6 @@
       <xsd:attributeGroup ref="xml:specialAttrs"/>
    </xsd:complexType>
 
-   <xsd:element name="discovery-group-ref">
-      <xsd:complexType>
-         <xsd:attribute name="discovery-group-name" type="xsd:IDREF"/>
-         <xsd:attributeGroup ref="xml:specialAttrs"/>
-      </xsd:complexType>
-   </xsd:element>
-
    <xsd:complexType name="class-name-sequenceType">
       <xsd:annotation>
          <xsd:documentation>
@@ -1273,7 +1374,7 @@
    </xsd:element>
 
    <xsd:complexType name="bridgeType">
-      <xsd:sequence>
+      <xsd:all>
          <xsd:element name="queue-name" type="xsd:string" maxOccurs="1" minOccurs="1">
             <xsd:annotation>
                <xsd:documentation>
@@ -1319,8 +1420,7 @@
          <xsd:element name="min-large-message-size" type="xsd:string" default="102400" maxOccurs="1" minOccurs="0">
             <xsd:annotation>
                <xsd:documentation>
-                  Any message larger than this size (in bytes) is considered a large message (to be sent in
-                  chunks).
+                  Any message larger than this size (in bytes) is considered a large message (to be sent in chunks).
                   Supports byte notation like "K", "Mb", "MiB", "GB", etc.
                </xsd:documentation>
             </xsd:annotation>
@@ -1439,8 +1539,8 @@
          <xsd:element name="reconnect-attempts-same-node" default="10" type="xsd:int" maxOccurs="1" minOccurs="0">
             <xsd:annotation>
                <xsd:documentation>
-                  Upon reconnection this configures the number of time the same node on the topology will be retried
-                  before resetting the server locator and using the initial connectors
+                  configures the number of times reconnection attempts will be made to the same node on the topology
+                  before reverting back to the initial connector(s)
                </xsd:documentation>
             </xsd:annotation>
          </xsd:element>
@@ -1462,29 +1562,17 @@
             </xsd:annotation>
          </xsd:element>
 
-         <xsd:choice>
-            <xsd:element name="static-connectors" maxOccurs="1" minOccurs="1">
-               <xsd:complexType>
-                  <xsd:sequence>
-                     <xsd:element name="connector-ref" type="xsd:string" maxOccurs="unbounded" minOccurs="1"/>
-                  </xsd:sequence>
-                  <xsd:attributeGroup ref="xml:specialAttrs"/>
-               </xsd:complexType>
-            </xsd:element>
-            <xsd:element name="discovery-group-ref" maxOccurs="1" minOccurs="1">
-               <xsd:complexType>
-                  <xsd:attribute name="discovery-group-name" type="xsd:IDREF" use="required">
-                     <xsd:annotation>
-                        <xsd:documentation>
-                           name of discovery group used by this bridge
-                        </xsd:documentation>
-                     </xsd:annotation>
-                  </xsd:attribute>
-                  <xsd:attributeGroup ref="xml:specialAttrs"/>
-               </xsd:complexType>
-            </xsd:element>
-         </xsd:choice>
-      </xsd:sequence>
+         <xsd:element name="pending-ack-timeout" type="xsd:long" default="60000" maxOccurs="1" minOccurs="0">
+            <xsd:annotation>
+               <xsd:documentation>
+                  how long to wait for acknowledgements to arrive from the bridge's target while stopping or pausing the bridge
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:element>
+
+         <xsd:element ref="discovery-type" maxOccurs="1" minOccurs="1"/>
+
+      </xsd:all>
 
       <xsd:attribute name="name" type="xsd:ID" use="required">
          <xsd:annotation>
@@ -2327,7 +2415,7 @@
    </xsd:complexType>
 
    <xsd:complexType name="cluster-connectionType">
-      <xsd:sequence>
+      <xsd:all>
          <xsd:element name="address" type="xsd:string" maxOccurs="1" minOccurs="0">
             <xsd:annotation>
                <xsd:documentation>
@@ -2510,36 +2598,10 @@
             </xsd:annotation>
          </xsd:element>
 
-         <xsd:choice>
-            <xsd:element name="static-connectors" maxOccurs="1" minOccurs="0">
-               <xsd:complexType>
-                  <xsd:sequence>
-                     <xsd:element name="connector-ref" type="xsd:string" maxOccurs="unbounded" minOccurs="0"/>
-                  </xsd:sequence>
-                  <xsd:attribute name="allow-direct-connections-only" default="false" type="xsd:boolean" use="optional">
-                     <xsd:annotation>
-                        <xsd:documentation>
-                           restricts cluster connections to the listed connector-ref's
-                        </xsd:documentation>
-                     </xsd:annotation>
-                  </xsd:attribute>
-                  <xsd:attributeGroup ref="xml:specialAttrs"/>
-               </xsd:complexType>
-            </xsd:element>
-            <xsd:element name="discovery-group-ref" maxOccurs="1" minOccurs="0">
-               <xsd:complexType>
-                  <xsd:attribute name="discovery-group-name" type="xsd:IDREF" use="required">
-                     <xsd:annotation>
-                        <xsd:documentation>
-                           name of discovery group used by this cluster-connection
-                        </xsd:documentation>
-                     </xsd:annotation>
-                  </xsd:attribute>
-                  <xsd:attributeGroup ref="xml:specialAttrs"/>
-               </xsd:complexType>
-            </xsd:element>
-         </xsd:choice>
-      </xsd:sequence>
+         <xsd:element ref="discovery-type" maxOccurs="1" minOccurs="0"/>
+
+      </xsd:all>
+
       <xsd:attribute name="name" type="xsd:ID" use="required">
          <xsd:annotation>
             <xsd:documentation>
@@ -4394,7 +4456,7 @@
             </xsd:annotation>
          </xsd:element>
 
-         <xsd:element name="id-cache-size" type="xsd:int" maxOccurs="1" minOccurs="0">
+         <xsd:element name="id-cache-size" type="xsd:int" default="20000" maxOccurs="1" minOccurs="0">
             <xsd:annotation>
                <xsd:documentation>
                   This will set the Duplicate ID cache size for the matching address. By default the global
@@ -4847,6 +4909,22 @@
                <xsd:annotation>
                   <xsd:documentation>
                      whether or not to report uptime metrics
+                  </xsd:documentation>
+               </xsd:annotation>
+            </xsd:element>
+
+            <xsd:element name="logging" type="xsd:boolean" default="false" maxOccurs="1" minOccurs="0">
+               <xsd:annotation>
+                  <xsd:documentation>
+                     whether or not to report logging metrics
+                  </xsd:documentation>
+               </xsd:annotation>
+            </xsd:element>
+
+            <xsd:element name="security-caches" type="xsd:boolean" default="false" maxOccurs="1" minOccurs="0">
+               <xsd:annotation>
+                  <xsd:documentation>
+                     whether to report metrics for the authentication and authorization caches
                   </xsd:documentation>
                </xsd:annotation>
             </xsd:element>

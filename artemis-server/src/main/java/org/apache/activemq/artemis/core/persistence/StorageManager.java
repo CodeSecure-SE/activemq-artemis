@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 import org.apache.activemq.artemis.api.core.ActiveMQBuffer;
 import org.apache.activemq.artemis.api.core.ActiveMQException;
@@ -33,13 +34,13 @@ import org.apache.activemq.artemis.core.io.SequentialFile;
 import org.apache.activemq.artemis.core.io.SequentialFileFactory;
 import org.apache.activemq.artemis.core.journal.Journal;
 import org.apache.activemq.artemis.core.journal.JournalLoadInformation;
+import org.apache.activemq.artemis.core.journal.RecordInfo;
 import org.apache.activemq.artemis.core.paging.PageTransactionInfo;
 import org.apache.activemq.artemis.core.paging.PagedMessage;
 import org.apache.activemq.artemis.core.paging.PagingManager;
 import org.apache.activemq.artemis.core.paging.PagingStore;
 import org.apache.activemq.artemis.core.paging.cursor.PagePosition;
 import org.apache.activemq.artemis.core.persistence.config.AbstractPersistedAddressSetting;
-import org.apache.activemq.artemis.core.persistence.config.PersistedAddressSetting;
 import org.apache.activemq.artemis.core.persistence.config.PersistedAddressSettingJSON;
 import org.apache.activemq.artemis.core.persistence.config.PersistedBridgeConfiguration;
 import org.apache.activemq.artemis.core.persistence.config.PersistedConnector;
@@ -82,6 +83,11 @@ public interface StorageManager extends IDGenerator, ActiveMQComponent {
       return Long.MAX_VALUE;
    }
 
+   default long getWarningRecordSize() {
+      /** Null journal is pretty much memory */
+      return Long.MAX_VALUE;
+   }
+
    default void recoverLargeMessagesOnFolder(Set<Long> files) throws Exception {
    }
 
@@ -120,11 +126,11 @@ public interface StorageManager extends IDGenerator, ActiveMQComponent {
 
    // Message related operations
 
-   void pageClosed(SimpleString storeName, long pageNumber);
+   void pageClosed(SimpleString address, long pageNumber);
 
-   void pageDeleted(SimpleString storeName, long pageNumber);
+   void pageDeleted(SimpleString address, long pageNumber);
 
-   void pageWrite(PagedMessage message, long pageNumber);
+   void pageWrite(SimpleString address, PagedMessage message, long pageNumber);
 
    void afterCompleteOperations(IOCallback run);
 
@@ -219,10 +225,10 @@ public interface StorageManager extends IDGenerator, ActiveMQComponent {
 
    void deleteDuplicateIDTransactional(long txID, long recordID) throws Exception;
 
-   LargeServerMessage createLargeMessage();
+   LargeServerMessage createCoreLargeMessage();
 
    /**
-    * Creates a new LargeMessage with the given id.
+    * Creates a new LargeServerMessage for the core Protocol with the given id.
     *
     * @param id
     * @param message This is a temporary message that holds the parsed properties. The remoting
@@ -230,9 +236,10 @@ public interface StorageManager extends IDGenerator, ActiveMQComponent {
     * @return a large message object
     * @throws Exception
     */
-   LargeServerMessage createLargeMessage(long id, Message message) throws Exception;
+   LargeServerMessage createCoreLargeMessage(long id, Message message) throws Exception;
 
-   LargeServerMessage largeMessageCreated(long id, LargeServerMessage largeMessage) throws Exception;
+   /** Other protocols may inform the storage manager when a large message was created. */
+   LargeServerMessage onLargeMessageCreate(long id, LargeServerMessage largeMessage) throws Exception;
 
    enum LargeMessageExtension {
       DURABLE(".msg"), TEMPORARY(".tmp"), SYNC(".sync");
@@ -300,15 +307,29 @@ public interface StorageManager extends IDGenerator, ActiveMQComponent {
       return loadMessageJournal(postOffice, pagingManager, resourceManager, queueInfos, duplicateIDMap, pendingLargeMessages, null, pendingNonTXPageCounter, journalLoader);
    }
 
+   default JournalLoadInformation loadMessageJournal(PostOffice postOffice,
+                                                     PagingManager pagingManager,
+                                                     ResourceManager resourceManager,
+                                                     Map<Long, QueueBindingInfo> queueInfos,
+                                                     Map<SimpleString, List<Pair<byte[], Long>>> duplicateIDMap,
+                                                     Set<Pair<Long, Long>> pendingLargeMessages,
+                                                     Set<Long> largeMessagesInFolder,
+                                                     List<PageCountPending> pendingNonTXPageCounter,
+                                                     JournalLoader journalLoader) throws Exception {
+      return loadMessageJournal(postOffice, pagingManager, resourceManager, queueInfos, duplicateIDMap, pendingLargeMessages, largeMessagesInFolder, pendingNonTXPageCounter, journalLoader, null);
+
+   }
+
    JournalLoadInformation loadMessageJournal(PostOffice postOffice,
-                                             PagingManager pagingManager,
-                                             ResourceManager resourceManager,
-                                             Map<Long, QueueBindingInfo> queueInfos,
-                                             Map<SimpleString, List<Pair<byte[], Long>>> duplicateIDMap,
-                                             Set<Pair<Long, Long>> pendingLargeMessages,
-                                             Set<Long> largeMessagesInFolder,
-                                             List<PageCountPending> pendingNonTXPageCounter,
-                                             JournalLoader journalLoader) throws Exception;
+                                                     PagingManager pagingManager,
+                                                     ResourceManager resourceManager,
+                                                     Map<Long, QueueBindingInfo> queueInfos,
+                                                     Map<SimpleString, List<Pair<byte[], Long>>> duplicateIDMap,
+                                                     Set<Pair<Long, Long>> pendingLargeMessages,
+                                                     Set<Long> largeMessagesInFolder,
+                                                     List<PageCountPending> pendingNonTXPageCounter,
+                                                     JournalLoader journalLoader,
+                                                     List<Consumer<RecordInfo>> extraRecordsLoader) throws Exception;
 
    long storeHeuristicCompletion(Xid xid, boolean isCommit) throws Exception;
 
@@ -350,13 +371,13 @@ public interface StorageManager extends IDGenerator, ActiveMQComponent {
 
    void deleteGrouping(long tx, GroupBinding groupBinding) throws Exception;
 
-   void storeAddressSetting(PersistedAddressSetting addressSetting) throws Exception;
-
    void storeAddressSetting(PersistedAddressSettingJSON addressSetting) throws Exception;
 
    void deleteAddressSetting(SimpleString addressMatch) throws Exception;
 
    List<AbstractPersistedAddressSetting> recoverAddressSettings() throws Exception;
+
+   AbstractPersistedAddressSetting recoverAddressSettings(SimpleString address);
 
    void storeSecuritySetting(PersistedSecuritySetting persistedRoles) throws Exception;
 
