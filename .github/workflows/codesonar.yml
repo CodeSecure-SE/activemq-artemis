@@ -30,7 +30,8 @@ jobs:
             REPO_URL: "http://github.com/CodeSecure-SE/ActiveMQ-Artemis"    # the github.repositoryUrl is not an http-link.
             TARGET: ${{ github.base_ref }}
             IS_PR: ${{ github.event_name }}
-            SUBCOMPONENT: "artemis-protocols"
+            SUBCOMPONENT: "-include-artifacts \"artemis-protocols/*/target/artemis-protocols*-SNAPSHOT.jar\""
+            DEPENDENCIES: "-include artifacts \"artemis-jms-client/*/target/*.jar\""
 
         steps:
         - uses: actions/checkout@v3
@@ -57,7 +58,7 @@ jobs:
         - name: Build and analyze scan with CodeSonar
           run: |
             python3 cso-scripts/build_and_analyze.py scripts/codesonar.conf \
-            $CSONAR_CSHOME/codesonar/bin/cs-java-scan -include-artifacts "$SUBCOMPONENT/*/target/artemis*-SNAPSHOT.jar" -include-sources "**/*.java" 
+            $CSONAR_CSHOME/codesonar/bin/cs-java-scan $SUBCOMPONENT $DEPENDENCIES -include-sources "**/*.java" 
         - name: Upload SARIF to GitHub #Use this if you do not have GitHub Enterprise
           if: ${{ github.event.pull_request }}
           uses: actions/upload-artifact@v3
