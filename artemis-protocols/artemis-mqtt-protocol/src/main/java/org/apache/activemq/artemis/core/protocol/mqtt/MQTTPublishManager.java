@@ -130,13 +130,13 @@ public class MQTTPublishManager {
    }
 
    private SimpleString createManagementAddress() {
-      return new SimpleString(MQTTUtil.MANAGEMENT_QUEUE_PREFIX + session.getState().getClientId());
+      return SimpleString.of(MQTTUtil.MANAGEMENT_QUEUE_PREFIX + session.getState().getClientId());
    }
 
    private void createManagementQueue() throws Exception {
       Queue q = session.getServer().locateQueue(managementAddress);
       if (q == null) {
-         session.getServer().createQueue(new QueueConfiguration(managementAddress)
+         session.getServer().createQueue(QueueConfiguration.of(managementAddress)
                                             .setRoutingType(RoutingType.ANYCAST)
                                             .setDurable(MQTTUtil.DURABLE_MESSAGES));
       }
@@ -216,8 +216,8 @@ public class MQTTPublishManager {
                }
             }
          }
-         String coreAddress = MQTTUtil.convertMqttTopicFilterToCore(topic, session.getWildcardConfiguration());
-         SimpleString address = SimpleString.toSimpleString(coreAddress, session.getCoreMessageObjectPools().getAddressStringSimpleStringPool());
+         String coreAddress = MQTTUtil.getCoreAddressFromMqttTopic(topic, session.getWildcardConfiguration());
+         SimpleString address = SimpleString.of(coreAddress, session.getCoreMessageObjectPools().getAddressStringSimpleStringPool());
          Message serverMessage = MQTTUtil.createServerMessageFromByteBuf(session, address, message);
          int qos = message.fixedHeader().qosLevel().value();
          if (qos > 0) {
@@ -392,7 +392,7 @@ public class MQTTPublishManager {
    }
 
    private boolean publishToClient(int messageId, ICoreMessage message, int deliveryCount, int qos, long consumerId) throws Exception {
-      String address = MQTTUtil.convertCoreAddressToMqttTopicFilter(message.getAddress() == null ? "" : message.getAddress(), session.getWildcardConfiguration());
+      String topic = MQTTUtil.getMqttTopicFromCoreAddress(message.getAddress() == null ? "" : message.getAddress(), session.getWildcardConfiguration());
 
       ByteBuf payload;
       switch (message.getType()) {
@@ -418,29 +418,29 @@ public class MQTTPublishManager {
 
       if (session.getVersion() == MQTTVersion.MQTT_5) {
          if (!isRetain && message.getBooleanProperty(MQTT_MESSAGE_RETAIN_KEY)) {
-            MqttTopicSubscription sub = session.getState().getSubscription(message.getAddress());
+            MqttTopicSubscription sub = session.getState().getSubscription(topic);
             if (sub != null && sub.option().isRetainAsPublished()) {
                isRetain = true;
             }
          }
 
          if (session.getState().getClientTopicAliasMaximum() != null) {
-            Integer alias = session.getState().getServerTopicAlias(address);
+            Integer alias = session.getState().getServerTopicAlias(topic);
             if (alias == null) {
-               alias = session.getState().addServerTopicAlias(address);
+               alias = session.getState().addServerTopicAlias(topic);
                if (alias != null) {
                   mqttProperties.add(new MqttProperties.IntegerProperty(TOPIC_ALIAS.value(), alias));
                }
             } else {
                mqttProperties.add(new MqttProperties.IntegerProperty(TOPIC_ALIAS.value(), alias));
-               address = "";
+               topic = "";
             }
          }
       }
 
-      int remainingLength = MQTTUtil.calculateRemainingLength(address, mqttProperties, payload);
+      int remainingLength = MQTTUtil.calculateRemainingLength(topic, mqttProperties, payload);
       MqttFixedHeader header = new MqttFixedHeader(MqttMessageType.PUBLISH, redelivery, MqttQoS.valueOf(qos), isRetain, remainingLength);
-      MqttPublishVariableHeader varHeader = new MqttPublishVariableHeader(address, messageId, mqttProperties);
+      MqttPublishVariableHeader varHeader = new MqttPublishVariableHeader(topic, messageId, mqttProperties);
       MqttPublishMessage publish = new MqttPublishMessage(header, varHeader, payload);
 
       int maxSize = session.getState().getClientMaxPacketSize();
@@ -480,7 +480,7 @@ public class MQTTPublishManager {
          for (SimpleString propertyName : message.getPropertyNames()) {
             if (propertyName.startsWith(MQTT_USER_PROPERTY_KEY_PREFIX_SIMPLE)) {
                SimpleString[] split = propertyName.split('.');
-               int position = Integer.valueOf(split[4].toString());
+               int position = Integer.parseInt(split[4].toString());
                String key = propertyName.subSeq(MQTT_USER_PROPERTY_KEY_PREFIX_SIMPLE.length() + split[4].length() + 1, propertyName.length()).toString();
                orderedProperties[position] = new MqttProperties.StringPair(key, message.getStringProperty(propertyName));
             }

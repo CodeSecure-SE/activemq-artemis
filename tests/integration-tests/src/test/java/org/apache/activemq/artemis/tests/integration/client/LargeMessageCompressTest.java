@@ -16,6 +16,12 @@
  */
 package org.apache.activemq.artemis.tests.integration.client;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -29,6 +35,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Deflater;
 
 import io.netty.util.internal.PlatformDependent;
+import org.apache.activemq.artemis.api.core.ICoreMessage;
 import org.apache.activemq.artemis.api.core.Message;
 import org.apache.activemq.artemis.api.core.QueueConfiguration;
 import org.apache.activemq.artemis.api.core.RoutingType;
@@ -46,13 +53,11 @@ import org.apache.activemq.artemis.core.config.StoreConfiguration;
 import org.apache.activemq.artemis.core.management.impl.QueueControlImpl;
 import org.apache.activemq.artemis.core.server.ActiveMQServer;
 import org.apache.activemq.artemis.jms.client.ActiveMQConnectionFactory;
+import org.apache.activemq.artemis.tests.extensions.parameterized.ParameterizedTestExtension;
 import org.apache.activemq.artemis.utils.RandomUtil;
-import org.junit.Assert;
-import org.junit.Assume;
-import org.junit.Test;
-
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.not;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.TestTemplate;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import javax.jms.BytesMessage;
 import javax.jms.Connection;
@@ -63,11 +68,8 @@ import javax.jms.MessageProducer;
 import javax.jms.Session;
 import javax.management.openmbean.CompositeData;
 
-/**
- * A LargeMessageCompressTest
- * <br>
- * Just extend the LargeMessageTest
- */
+//Parameters set in superclass
+@ExtendWith(ParameterizedTestExtension.class)
 public class LargeMessageCompressTest extends LargeMessageTest {
 
 
@@ -91,13 +93,13 @@ public class LargeMessageCompressTest extends LargeMessageTest {
    }
 
    @Override
-   @Test
+   @TestTemplate
+   @Disabled
    public void testDeleteUnreferencedMessage() {
       // this test makes no sense as it needs to delete a large message and its record
-      Assume.assumeFalse(true);
    }
 
-   @Test
+   @TestTemplate
    public void testLargeMessageCompressionNotCompressedAndBrowsed() throws Exception {
       final int messageSize = (int) (3.5 * ActiveMQClient.DEFAULT_MIN_LARGE_MESSAGE_SIZE);
 
@@ -109,7 +111,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientSession session = addClientSession(sf.createSession(false, false, false));
 
-      session.createQueue(new QueueConfiguration(ADDRESS).setAddress(ADDRESS).setDurable(false).setTemporary(true));
+      session.createQueue(QueueConfiguration.of(ADDRESS).setAddress(ADDRESS).setDurable(false).setTemporary(true));
 
       ClientProducer producer = session.createProducer(ADDRESS);
 
@@ -127,11 +129,11 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       CompositeData[] browse = queueControl.browse();
 
-      Assert.assertNotNull(browse);
+      assertNotNull(browse);
 
-      Assert.assertEquals(browse.length, 1);
+      assertEquals(browse.length, 1);
 
-      Assert.assertEquals(browse[0].get("text"), "[compressed]");
+      assertEquals(browse[0].get("text"), "[compressed]");
 
       //clean up
       session = addClientSession(sf.createSession(false, false, false));
@@ -140,11 +142,11 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientConsumer consumer = session.createConsumer(ADDRESS);
       ClientMessage msg1 = consumer.receive(1000);
-      Assert.assertNotNull(msg1);
+      assertNotNull(msg1);
 
       for (int i = 0; i < messageSize; i++) {
          byte b = msg1.getBodyBuffer().readByte();
-         assertEquals("position = " + i, getSamplebyte(i), b);
+         assertEquals(getSamplebyte(i), b, "position = " + i);
       }
 
       msg1.acknowledge();
@@ -157,9 +159,9 @@ public class LargeMessageCompressTest extends LargeMessageTest {
       validateNoFilesOnLargeDir();
    }
 
-   @Test
+   @TestTemplate
    public void testNoDirectByteBufLeaksOnLargeMessageCompression() throws Exception {
-      Assume.assumeThat(PlatformDependent.usedDirectMemory(), not(equalTo(Long.valueOf(-1))));
+      assumeTrue(PlatformDependent.usedDirectMemory() != -1);
       final int messageSize = (int) (3.5 * ActiveMQClient.DEFAULT_MIN_LARGE_MESSAGE_SIZE);
 
       ActiveMQServer server = createServer(true, isNetty());
@@ -170,7 +172,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientSession session = addClientSession(sf.createSession(false, false, false));
 
-      session.createQueue(new QueueConfiguration(ADDRESS).setAddress(ADDRESS).setDurable(false).setTemporary(true));
+      session.createQueue(QueueConfiguration.of(ADDRESS).setAddress(ADDRESS).setDurable(false).setTemporary(true));
 
       ClientProducer producer = session.createProducer(ADDRESS);
 
@@ -185,10 +187,9 @@ public class LargeMessageCompressTest extends LargeMessageTest {
       ClientConsumer consumer = session.createConsumer(ADDRESS);
       final long usedDirectMemoryBeforeReceive = PlatformDependent.usedDirectMemory();
       ClientMessage msg1 = consumer.receive(1000);
-      Assert.assertNotNull(msg1);
+      assertNotNull(msg1);
       final long usedDirectMemoryAfterReceive = PlatformDependent.usedDirectMemory();
-      Assert.assertEquals("large message compression is leaking some Netty direct ByteBuff",
-                          usedDirectMemoryBeforeReceive, usedDirectMemoryAfterReceive);
+      assertEquals(usedDirectMemoryBeforeReceive, usedDirectMemoryAfterReceive, "large message compression is leaking some Netty direct ByteBuff");
       msg1.acknowledge();
       session.commit();
 
@@ -197,7 +198,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
       session.close();
    }
 
-   @Test
+   @TestTemplate
    public void testLargeMessageCompression() throws Exception {
       final int messageSize = (int) (3.5 * ActiveMQClient.DEFAULT_MIN_LARGE_MESSAGE_SIZE);
 
@@ -209,7 +210,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientSession session = addClientSession(sf.createSession(false, false, false));
 
-      session.createQueue(new QueueConfiguration(ADDRESS).setAddress(ADDRESS).setDurable(false).setTemporary(true));
+      session.createQueue(QueueConfiguration.of(ADDRESS).setAddress(ADDRESS).setDurable(false).setTemporary(true));
 
       ClientProducer producer = session.createProducer(ADDRESS);
 
@@ -223,11 +224,11 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientConsumer consumer = session.createConsumer(ADDRESS);
       ClientMessage msg1 = consumer.receive(1000);
-      Assert.assertNotNull(msg1);
+      assertNotNull(msg1);
 
       for (int i = 0; i < messageSize; i++) {
          byte b = msg1.getBodyBuffer().readByte();
-         assertEquals("position = " + i, getSamplebyte(i), b);
+         assertEquals(getSamplebyte(i), b, "position = " + i);
       }
 
       msg1.acknowledge();
@@ -240,7 +241,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
       validateNoFilesOnLargeDir();
    }
 
-   @Test
+   @TestTemplate
    public void testLargeMessageCompression2() throws Exception {
       final int messageSize = (int) (3.5 * ActiveMQClient.DEFAULT_MIN_LARGE_MESSAGE_SIZE);
 
@@ -252,7 +253,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientSession session = addClientSession(sf.createSession(false, false, false));
 
-      session.createQueue(new QueueConfiguration(ADDRESS).setAddress(ADDRESS).setDurable(false).setTemporary(true));
+      session.createQueue(QueueConfiguration.of(ADDRESS).setAddress(ADDRESS).setDurable(false).setTemporary(true));
 
       ClientProducer producer = session.createProducer(ADDRESS);
 
@@ -266,7 +267,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientConsumer consumer = session.createConsumer(ADDRESS);
       ClientMessage msg1 = consumer.receive(1000);
-      Assert.assertNotNull(msg1);
+      assertNotNull(msg1);
 
       String testDir = getTestDir();
       File testFile = new File(testDir, "async_large_message");
@@ -290,7 +291,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
       FileInputStream input = new FileInputStream(testFile);
       for (int i = 0; i < messageSize; i++) {
          byte b = (byte) input.read();
-         assertEquals("position = " + i, getSamplebyte(i), b);
+         assertEquals(getSamplebyte(i), b, "position = " + i);
       }
       input.close();
       testFile.delete();
@@ -298,7 +299,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
    }
 
-   @Test
+   @TestTemplate
    public void testLargeMessageCompression3() throws Exception {
       final int messageSize = (int) (3.5 * ActiveMQClient.DEFAULT_MIN_LARGE_MESSAGE_SIZE);
 
@@ -310,7 +311,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientSession session = addClientSession(sf.createSession(false, false, false));
 
-      session.createQueue(new QueueConfiguration(ADDRESS).setAddress(ADDRESS).setDurable(false).setTemporary(true));
+      session.createQueue(QueueConfiguration.of(ADDRESS).setAddress(ADDRESS).setDurable(false).setTemporary(true));
 
       ClientProducer producer = session.createProducer(ADDRESS);
 
@@ -324,7 +325,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientConsumer consumer = session.createConsumer(ADDRESS);
       ClientMessage msg1 = consumer.receive(1000);
-      Assert.assertNotNull(msg1);
+      assertNotNull(msg1);
 
       String testDir = getTestDir();
       File testFile = new File(testDir, "async_large_message");
@@ -346,7 +347,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
       FileInputStream input = new FileInputStream(testFile);
       for (int i = 0; i < messageSize; i++) {
          byte b = (byte) input.read();
-         assertEquals("position = " + i, getSamplebyte(i), b);
+         assertEquals(getSamplebyte(i), b, "position = " + i);
       }
       input.close();
 
@@ -356,7 +357,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
    // This test will send 1 Gig of spaces. There shouldn't be enough memory to uncompress the file in memory
    // but this will make sure we can work through compressed channels on saving it to stream
-   @Test
+   @TestTemplate
    public void testHugeStreamingSpacesCompressed() throws Exception {
       final long messageSize = 1024L * 1024L;
 
@@ -371,7 +372,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientSession session = addClientSession(sf.createSession(false, false, false));
 
-      session.createQueue(new QueueConfiguration(ADDRESS));
+      session.createQueue(QueueConfiguration.of(ADDRESS));
 
       ClientProducer producer = session.createProducer(ADDRESS);
 
@@ -413,7 +414,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientConsumer consumer = session.createConsumer(ADDRESS);
       ClientMessage msg1 = consumer.receive(1000);
-      Assert.assertNotNull(msg1);
+      assertNotNull(msg1);
 
       final AtomicLong numberOfSpaces = new AtomicLong();
 
@@ -435,7 +436,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
       session.close();
    }
 
-   @Test
+   @TestTemplate
    public void testLargeMessageCompressionRestartAndCheckSize() throws Exception {
       final int messageSize = 1024 * 1024;
 
@@ -447,7 +448,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientSession session = addClientSession(sf.createSession(false, false, false));
 
-      session.createQueue(new QueueConfiguration(ADDRESS));
+      session.createQueue(QueueConfiguration.of(ADDRESS));
 
       ClientProducer producer = session.createProducer(ADDRESS);
 
@@ -484,7 +485,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
       ClientConsumer consumer = session.createConsumer(ADDRESS);
       ClientMessage msg1 = consumer.receive(1000);
-      Assert.assertNotNull(msg1);
+      assertNotNull(msg1);
 
       assertEquals(messageSize, msg1.getBodySize());
 
@@ -506,7 +507,7 @@ public class LargeMessageCompressTest extends LargeMessageTest {
       FileInputStream input = new FileInputStream(testFile);
       for (int i = 0; i < messageSize; i++) {
          byte b = (byte) input.read();
-         assertEquals("position = " + i, msgs[i], b);
+         assertEquals(msgs[i], b, "position = " + i);
       }
       input.close();
 
@@ -514,65 +515,72 @@ public class LargeMessageCompressTest extends LargeMessageTest {
       validateNoFilesOnLargeDir();
    }
 
-   @Test
+   @TestTemplate
    public void testPreviouslyCompressedMessageCleanup() throws Exception {
       final int messageSize = 1024 * 1024;
+
+      byte[] payload = new byte[messageSize];
+      byte[] response = new byte[messageSize];
 
       ActiveMQServer server = createServer(true, isNetty());
       server.start();
 
-      ClientSessionFactory sf1 = createSessionFactory(locator);
-      ClientSession session1 = addClientSession(sf1.createSession(false, true, true));
-      session1.createQueue(new QueueConfiguration(ADDRESS).setRoutingType(RoutingType.ANYCAST));
-      ClientProducer producer = session1.createProducer(ADDRESS);
-
-      ServerLocator locator2 = ActiveMQClient.createServerLocator("vm://0");
-      locator2.setCompressLargeMessage(false);
-      ClientSessionFactory sf2 = locator2.createSessionFactory();
-      ClientSession session2 = sf2.createSession(false, true, true);
-      ClientConsumer consumer = session2.createConsumer(ADDRESS);
-      ClientProducer producer2 = session2.createProducer(ADDRESS);
-      session2.start();
-
-      byte[] payload = new byte[messageSize];
-      byte[] response = new byte[messageSize];
+      server.createQueue(QueueConfiguration.of(ADDRESS).setRoutingType(RoutingType.ANYCAST));
 
       for (int i = 0; i < payload.length; i++) {
          payload[i] = RandomUtil.randomByte();
       }
 
-      ClientMessage message = session1.createMessage(true);
-      message.getBodyBuffer().writeBytes(payload);
-      producer.send(message);
+      try (ClientSessionFactory sf = locator.createSessionFactory();
+           ClientSession session = sf.createSession(true, true);
+           ClientProducer producer = session.createProducer(ADDRESS)) {
 
-      message = consumer.receive();
-      assertTrue(message.getBooleanProperty(Message.HDR_LARGE_COMPRESSED));
+         ClientMessage message = session.createMessage(true);
+         message.getBodyBuffer().writeBytes(payload);
+         assertNull(message.getAnnotation(Message.HDR_LARGE_COMPRESSED));
 
-      message.getBodyBuffer().readBytes(response);
-      message.getBodyBuffer().writeBytes(response);
-      producer2.send(message);
+         producer.send(message);
+      }
 
-      message = consumer.receive();
-      assertFalse(message.getBooleanProperty(Message.HDR_LARGE_COMPRESSED));
+      ServerLocator locator2 = createFactory(isNetty());
+      locator2.setCompressLargeMessage(false);
+      locator2.setMinLargeMessageSize(1024);
 
-      message.getBodyBuffer().readBytes(payload);
-      message.getBodySize();
-      assertTrue(Arrays.equals(payload, response));
+      try (ClientSessionFactory sf = locator2.createSessionFactory();
+           ClientSession session = sf.createSession(true, true);
+           ClientConsumer consumer = session.createConsumer(ADDRESS);
+           ClientProducer producer = session.createProducer(ADDRESS)) {
 
-      session1.close();
-      session2.close();
-      sf1.close();
-      locator.close();
-      sf2.close();
+         ClientMessage message = session.createMessage(true);
+         ICoreMessage serverMessage = server.locateQueue(ADDRESS).browserIterator().next().getMessage().copy().toCore();
+
+         message.moveHeadersAndProperties(serverMessage);
+         message.getBodyBuffer().writeBytes(serverMessage.getReadOnlyBodyBuffer(), serverMessage.getBodyBufferSize());
+
+         assertTrue(message.getBooleanProperty(Message.HDR_LARGE_COMPRESSED));
+
+         producer.send(message);
+         session.start();
+
+         for (int i = 0; i < 2; i++) {
+            message = consumer.receive(2000);
+            assertNotNull(message);
+
+            message.getBodyBuffer().readBytes(response);
+            assertTrue(Arrays.equals(payload, response));
+            message.acknowledge();
+         }
+      }
+
       locator2.close();
    }
 
-   @Test
+   @TestTemplate
    public void testLargeMessageCompressionLevel() throws Exception {
 
-      SimpleString address1 = new SimpleString("address1");
-      SimpleString address2 = new SimpleString("address2");
-      SimpleString address3 = new SimpleString("address3");
+      SimpleString address1 = SimpleString.of("address1");
+      SimpleString address2 = SimpleString.of("address2");
+      SimpleString address3 = SimpleString.of("address3");
 
       ActiveMQServer server = createServer(true, true);
       server.start();
@@ -596,9 +604,9 @@ public class LargeMessageCompressTest extends LargeMessageTest {
       ClientProducer producer2 = session2.createProducer(address2);
       ClientProducer producer3 = session3.createProducer(address3);
 
-      session1.createQueue(new QueueConfiguration(address1));
-      session2.createQueue(new QueueConfiguration(address2));
-      session3.createQueue(new QueueConfiguration(address3));
+      session1.createQueue(QueueConfiguration.of(address1));
+      session2.createQueue(QueueConfiguration.of(address2));
+      session3.createQueue(QueueConfiguration.of(address3));
 
       String inputString = "blahblahblah??blahblahblahblahblah??blablahblah??blablahblah??bla";
       for (int i = 0; i < 20; i++) {
@@ -634,15 +642,16 @@ public class LargeMessageCompressTest extends LargeMessageTest {
 
    }
 
+   @Disabled
    @Override
-   @Test
+   @TestTemplate
    public void testSendServerMessage() throws Exception {
       // doesn't make sense as compressed
    }
 
 
    // https://issues.apache.org/jira/projects/ARTEMIS/issues/ARTEMIS-3751
-   @Test
+   @TestTemplate
    public void testOverrideSize() throws Exception {
       ActiveMQServer server = createServer(true, true);
 
@@ -685,8 +694,8 @@ public class LargeMessageCompressTest extends LargeMessageTest {
       int compressed = deflater.deflate(output);
       deflater.end();
 
-      Assert.assertTrue(compressed > min);
-      Assert.assertTrue(compressed < max);
+      assertTrue(compressed > min);
+      assertTrue(compressed < max);
    }
 
    /**

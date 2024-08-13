@@ -57,6 +57,7 @@
       <populate-validated-user>true</populate-validated-user>
       <reject-empty-validated-user>false</reject-empty-validated-user>
       <mqtt-session-scan-interval>123456</mqtt-session-scan-interval>
+      <mqtt-session-state-persistence-timeout>567890</mqtt-session-state-persistence-timeout>
       <connection-ttl-check-interval>98765</connection-ttl-check-interval>
       <configuration-file-refresh-period>1234567</configuration-file-refresh-period>
       <temporary-queue-namespace>TEMP</temporary-queue-namespace>
@@ -180,6 +181,15 @@
                </static-connectors>
             </pool>
          </connection-router>
+         <connection-router name="simple-router-connector2">
+            <key-type>USER_NAME</key-type>
+            <policy name="FIRST_ELEMENT"/>
+            <pool>
+               <static-connectors>
+                  <connector-ref>connector2</connector-ref>
+               </static-connectors>
+            </pool>
+         </connection-router>
          <connection-router name="consistent-hash-router">
             <key-type>SNI_HOST</key-type>
             <key-filter>^[^.]+</key-filter>
@@ -232,13 +242,13 @@
             <max-retry-interval>10002</max-retry-interval>
             <reconnect-attempts>2</reconnect-attempts>
             <failover-on-server-shutdown>false</failover-on-server-shutdown>
-            <use-duplicate-detection>true</use-duplicate-detection>
             <confirmation-window-size>1G</confirmation-window-size>
             <producer-window-size>444</producer-window-size>
             <routing-type>STRIP</routing-type>
             <static-connectors>
                <connector-ref>connector1</connector-ref>
             </static-connectors>
+            <use-duplicate-detection>true</use-duplicate-detection>
          </bridge>
          <bridge name="bridge2">
             <queue-name>queue2</queue-name>
@@ -248,14 +258,15 @@
          </bridge>
          <bridge name="bridge3">
             <queue-name>queue3</queue-name>
-            <forwarding-address>bridge-forwarding-address2</forwarding-address>
             <transformer>
                <class-name>org.foo.BridgeTransformer3</class-name>
                <property key="bridgeTransformerKey1" value="bridgeTransformerValue1"/>
                <property key="bridgeTransformerKey2" value="bridgeTransformerValue2"/>
             </transformer>
             <producer-window-size>555k</producer-window-size>
+            <pending-ack-timeout>123456</pending-ack-timeout>
             <discovery-group-ref discovery-group-name="dg1"/>
+            <forwarding-address>bridge-forwarding-address2</forwarding-address>
          </bridge>
          <bridge name="bridge4">
             <queue-name>queue3</queue-name>
@@ -383,6 +394,8 @@
          <file-descriptors>true</file-descriptors>
          <processor>true</processor>
          <uptime>true</uptime>
+         <logging>true</logging>
+         <security-caches>true</security-caches>
          <plugin class-name="org.apache.activemq.artemis.core.server.metrics.plugins.SimpleMetricsPlugin">
             <property key="foo" value="x"/>
             <property key="bar" value="y"/>
@@ -420,22 +433,22 @@
             <max-hops>1</max-hops>
             <producer-window-size>222</producer-window-size>
             <call-failover-timeout>123</call-failover-timeout>
-            <static-connectors>
+            <static-connectors allow-direct-connections-only="true">
                <connector-ref>connector1</connector-ref>
                <connector-ref>connector2</connector-ref>
             </static-connectors>
          </cluster-connection>
          <cluster-connection name="cluster-connection2">
+            <discovery-group-ref discovery-group-name="dg1"/>
             <address>queues2</address>
             <connector-ref>connector2</connector-ref>
             <call-timeout>456</call-timeout>
+            <call-failover-timeout>456</call-failover-timeout>
             <retry-interval>4</retry-interval>
             <use-duplicate-detection>false</use-duplicate-detection>
             <message-load-balancing>STRICT</message-load-balancing>
             <max-hops>2</max-hops>
             <producer-window-size>333</producer-window-size>
-            <call-failover-timeout>456</call-failover-timeout>
-            <discovery-group-ref discovery-group-name="dg1"/>
          </cluster-connection>
          <cluster-connection name="cluster-connection3">
             <connector-ref>connector2</connector-ref>
@@ -539,6 +552,12 @@
       <network-check-ping-command>ping-four</network-check-ping-command>
       <network-check-ping6-command>ping-six</network-check-ping6-command>
       <page-sync-timeout>1000</page-sync-timeout>
+
+      <mirror-ack-manager-queue-attempts>111</mirror-ack-manager-queue-attempts>
+      <mirror-ack-manager-page-attempts>222</mirror-ack-manager-page-attempts>
+      <mirror-ack-manager-retry-delay>333</mirror-ack-manager-retry-delay>
+      <mirror-page-transaction>true</mirror-page-transaction>
+
       <security-settings>
          <security-setting match="a1">
             <permission type="createNonDurableQueue" roles="a1.1"/>

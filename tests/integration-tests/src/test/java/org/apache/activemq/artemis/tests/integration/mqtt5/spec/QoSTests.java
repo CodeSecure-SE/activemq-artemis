@@ -16,6 +16,11 @@
  */
 package org.apache.activemq.artemis.tests.integration.mqtt5.spec;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -39,7 +44,8 @@ import org.eclipse.paho.mqttv5.client.MqttClient;
 import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
 import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /**
  * Fulfilled by client or Netty codec (i.e. not tested here):
@@ -66,7 +72,8 @@ public class QoSTests extends MQTT5TestSupport {
     *
     * This test looks at the PUBLISH packet coming from *the broker* to the client
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQoS1andDupFlag() throws Exception {
       final String TOPIC = RandomUtil.randomString();
 
@@ -98,17 +105,19 @@ public class QoSTests extends MQTT5TestSupport {
     * [MQTT-4.3.2-3] In the QoS 1 delivery protocol, the sender MUST treat the PUBLISH packet as “unacknowledged” until
     * it has received the corresponding PUBACK packet from the receiver.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQoS1PubAck() throws Exception {
       final String TOPIC = RandomUtil.randomString();
+      final String CONSUMER_ID = "consumer";
       final CountDownLatch ackLatch = new CountDownLatch(1);
       final AtomicInteger packetId = new AtomicInteger();
 
       MQTTInterceptor incomingInterceptor = (packet, connection) -> {
          if (packet.fixedHeader().messageType() == MqttMessageType.PUBACK) {
             // ensure the message is still in the queue before we get the ack from the client
-            assertEquals(1, getSubscriptionQueue(TOPIC).getMessageCount());
-            assertEquals(1, getSubscriptionQueue(TOPIC).getDeliveringCount());
+            assertEquals(1, getSubscriptionQueue(TOPIC, CONSUMER_ID).getMessageCount());
+            assertEquals(1, getSubscriptionQueue(TOPIC, CONSUMER_ID).getDeliveringCount());
 
             // ensure the ids match so we know this is the "corresponding" PUBACK for the previous PUBLISH
             assertEquals(packetId.get(), ((MqttPubReplyMessageVariableHeader)packet.variableHeader()).messageId());
@@ -129,7 +138,7 @@ public class QoSTests extends MQTT5TestSupport {
       server.getRemotingService().addOutgoingInterceptor(outgoingInterceptor);
 
       final CountDownLatch latch = new CountDownLatch(1);
-      MqttClient consumer = createPahoClient("consumer");
+      MqttClient consumer = createPahoClient(CONSUMER_ID);
       consumer.connect();
       consumer.setCallback(new LatchedMqttCallback(latch));
       consumer.subscribe(TOPIC, 1);
@@ -142,8 +151,8 @@ public class QoSTests extends MQTT5TestSupport {
 
       assertTrue(ackLatch.await(2, TimeUnit.SECONDS));
       assertTrue(latch.await(2, TimeUnit.SECONDS));
-      assertEquals(0, getSubscriptionQueue(TOPIC).getMessageCount());
-      assertEquals(0, getSubscriptionQueue(TOPIC).getDeliveringCount());
+      assertEquals(0, getSubscriptionQueue(TOPIC, CONSUMER_ID).getMessageCount());
+      assertEquals(0, getSubscriptionQueue(TOPIC, CONSUMER_ID).getDeliveringCount());
       consumer.disconnect();
       consumer.close();
    }
@@ -152,7 +161,8 @@ public class QoSTests extends MQTT5TestSupport {
     * [MQTT-4.3.2-4] In the QoS 1 delivery protocol, the receiver MUST respond with a PUBACK packet containing the
     * Packet Identifier from the incoming PUBLISH packet, having accepted ownership of the Application Message.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQoS1PubAckId() throws Exception {
       final String TOPIC = RandomUtil.randomString();
       final CountDownLatch ackLatch = new CountDownLatch(1);
@@ -238,17 +248,19 @@ public class QoSTests extends MQTT5TestSupport {
     * [MQTT-4.3.3-3] In the QoS 2 delivery protocol, the sender MUST treat the PUBLISH packet as “unacknowledged” until
     * it has received the corresponding PUBREC packet from the receiver.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQoS2PubRec() throws Exception {
       final String TOPIC = RandomUtil.randomString();
+      final String CONSUMER_ID = "consumer";
       final CountDownLatch ackLatch = new CountDownLatch(1);
       final AtomicInteger packetId = new AtomicInteger();
 
       MQTTInterceptor incomingInterceptor = (packet, connection) -> {
          if (packet.fixedHeader().messageType() == MqttMessageType.PUBREC) {
             // ensure the message is still in the queue before we get the ack from the client
-            assertEquals(1, getSubscriptionQueue(TOPIC).getMessageCount());
-            assertEquals(1, getSubscriptionQueue(TOPIC).getDeliveringCount());
+            assertEquals(1, getSubscriptionQueue(TOPIC, CONSUMER_ID).getMessageCount());
+            assertEquals(1, getSubscriptionQueue(TOPIC, CONSUMER_ID).getDeliveringCount());
 
             // ensure the ids match so we know this is the "corresponding" PUBREC for the previous PUBLISH
             assertEquals(packetId.get(), ((MqttPubReplyMessageVariableHeader)packet.variableHeader()).messageId());
@@ -269,7 +281,7 @@ public class QoSTests extends MQTT5TestSupport {
       server.getRemotingService().addOutgoingInterceptor(outgoingInterceptor);
 
       final CountDownLatch latch = new CountDownLatch(1);
-      MqttClient consumer = createPahoClient("consumer");
+      MqttClient consumer = createPahoClient(CONSUMER_ID);
       consumer.connect();
       consumer.setCallback(new LatchedMqttCallback(latch));
       consumer.subscribe(TOPIC, 2);
@@ -282,8 +294,8 @@ public class QoSTests extends MQTT5TestSupport {
 
       assertTrue(ackLatch.await(2, TimeUnit.SECONDS));
       assertTrue(latch.await(2, TimeUnit.SECONDS));
-      assertEquals(0, getSubscriptionQueue(TOPIC).getMessageCount());
-      assertEquals(0, getSubscriptionQueue(TOPIC).getDeliveringCount());
+      assertEquals(0, getSubscriptionQueue(TOPIC, CONSUMER_ID).getMessageCount());
+      assertEquals(0, getSubscriptionQueue(TOPIC, CONSUMER_ID).getDeliveringCount());
       consumer.disconnect();
       consumer.close();
    }
@@ -293,7 +305,8 @@ public class QoSTests extends MQTT5TestSupport {
     * packet from the receiver with a Reason Code value less than 0x80. This PUBREL packet MUST contain the same Packet
     * Identifier as the original PUBLISH packet.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQoS2PubRelId() throws Exception {
       final String TOPIC = RandomUtil.randomString();
       final CountDownLatch ackLatch = new CountDownLatch(1);
@@ -345,10 +358,11 @@ public class QoSTests extends MQTT5TestSupport {
     * [MQTT-4.3.3-5] In the QoS 2 delivery protocol, the sender MUST treat the PUBREL packet as “unacknowledged” until
     * it has received the corresponding PUBCOMP packet from the receiver.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQoS2PubRel() throws Exception {
       final String TOPIC = RandomUtil.randomString();
-      final String CONSUMER_CLIENT_ID = "consumer";
+      final String CONSUMER_ID = "consumer";
       final CountDownLatch ackLatch = new CountDownLatch(1);
       final AtomicInteger packetId = new AtomicInteger();
 
@@ -356,8 +370,8 @@ public class QoSTests extends MQTT5TestSupport {
          if (packet.fixedHeader().messageType() == MqttMessageType.PUBCOMP) {
             try {
                // ensure the message is still in the management queue before we get the PUBCOMP from the client
-               Wait.assertEquals(1L, () -> server.locateQueue(MQTTUtil.MANAGEMENT_QUEUE_PREFIX + CONSUMER_CLIENT_ID).getMessageCount(), 2000, 100);
-               Wait.assertEquals(1L, () -> server.locateQueue(MQTTUtil.MANAGEMENT_QUEUE_PREFIX + CONSUMER_CLIENT_ID).getDeliveringCount(), 2000, 100);
+               Wait.assertEquals(1L, () -> server.locateQueue(MQTTUtil.MANAGEMENT_QUEUE_PREFIX + CONSUMER_ID).getMessageCount(), 2000, 100);
+               Wait.assertEquals(1L, () -> server.locateQueue(MQTTUtil.MANAGEMENT_QUEUE_PREFIX + CONSUMER_ID).getDeliveringCount(), 2000, 100);
             } catch (Exception e) {
                return false;
             }
@@ -381,7 +395,7 @@ public class QoSTests extends MQTT5TestSupport {
       server.getRemotingService().addOutgoingInterceptor(outgoingInterceptor);
 
       final CountDownLatch latch = new CountDownLatch(1);
-      MqttClient consumer = createPahoClient(CONSUMER_CLIENT_ID);
+      MqttClient consumer = createPahoClient(CONSUMER_ID);
       consumer.connect();
       consumer.setCallback(new LatchedMqttCallback(latch));
       consumer.subscribe(TOPIC, 2);
@@ -394,8 +408,8 @@ public class QoSTests extends MQTT5TestSupport {
 
       assertTrue(ackLatch.await(2, TimeUnit.SECONDS));
       assertTrue(latch.await(2, TimeUnit.SECONDS));
-      assertEquals(0, getSubscriptionQueue(TOPIC).getMessageCount());
-      assertEquals(0, getSubscriptionQueue(TOPIC).getDeliveringCount());
+      assertEquals(0, getSubscriptionQueue(TOPIC, CONSUMER_ID).getMessageCount());
+      assertEquals(0, getSubscriptionQueue(TOPIC, CONSUMER_ID).getDeliveringCount());
       consumer.disconnect();
       consumer.close();
    }
@@ -409,9 +423,11 @@ public class QoSTests extends MQTT5TestSupport {
     * Due to the nature of the underlying queue semantics once a message is "in delivery" it's no longer available for
     * expiration. This test demonstrates that.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQoS2WithExpiration() throws Exception {
       final String TOPIC = "myTopic";
+      final String CONSUMER_ID = "consumer";
       final CountDownLatch ackLatch = new CountDownLatch(1);
       final CountDownLatch expireRefsLatch = new CountDownLatch(1);
       final long messageExpiryInterval = 2;
@@ -419,12 +435,12 @@ public class QoSTests extends MQTT5TestSupport {
       MQTTInterceptor incomingInterceptor = (packet, connection) -> {
          if (packet.fixedHeader().messageType() == MqttMessageType.PUBREC) {
             // ensure the message is still in the queue before we get the PUBREC from the client
-            assertEquals(1, getSubscriptionQueue(TOPIC).getMessageCount());
-            assertEquals(1, getSubscriptionQueue(TOPIC).getDeliveringCount());
+            assertEquals(1, getSubscriptionQueue(TOPIC, CONSUMER_ID).getMessageCount());
+            assertEquals(1, getSubscriptionQueue(TOPIC, CONSUMER_ID).getDeliveringCount());
             try {
                // ensure enough time has passed for the message to expire
                Thread.sleep(messageExpiryInterval * 1500);
-               getSubscriptionQueue(TOPIC).expireReferences(expireRefsLatch::countDown);
+               getSubscriptionQueue(TOPIC, CONSUMER_ID).expireReferences(expireRefsLatch::countDown);
                assertTrue(expireRefsLatch.await(2, TimeUnit.SECONDS));
             } catch (InterruptedException e) {
                e.printStackTrace();
@@ -438,7 +454,7 @@ public class QoSTests extends MQTT5TestSupport {
       server.getRemotingService().addIncomingInterceptor(incomingInterceptor);
 
       final CountDownLatch latch = new CountDownLatch(1);
-      MqttClient consumer = createPahoClient("consumer");
+      MqttClient consumer = createPahoClient(CONSUMER_ID);
       consumer.connect();
       consumer.setCallback(new DefaultMqttCallback() {
          @Override
@@ -462,9 +478,9 @@ public class QoSTests extends MQTT5TestSupport {
 
       assertTrue(ackLatch.await(messageExpiryInterval * 2, TimeUnit.SECONDS));
       assertTrue(latch.await(messageExpiryInterval * 2, TimeUnit.SECONDS));
-      Wait.assertEquals(0, () -> getSubscriptionQueue(TOPIC).getMessageCount());
-      Wait.assertEquals(0, () -> getSubscriptionQueue(TOPIC).getDeliveringCount());
-      Wait.assertEquals(0, () -> getSubscriptionQueue(TOPIC).getMessagesExpired());
+      Wait.assertEquals(0, () -> getSubscriptionQueue(TOPIC, CONSUMER_ID).getMessageCount());
+      Wait.assertEquals(0, () -> getSubscriptionQueue(TOPIC, CONSUMER_ID).getDeliveringCount());
+      Wait.assertEquals(0, () -> getSubscriptionQueue(TOPIC, CONSUMER_ID).getMessagesExpired());
       consumer.disconnect();
       consumer.close();
    }
@@ -473,7 +489,8 @@ public class QoSTests extends MQTT5TestSupport {
     * [MQTT-4.3.3-8] In the QoS 2 delivery protocol, the receiver MUST respond with a PUBREC containing the Packet
     * Identifier from the incoming PUBLISH packet, having accepted ownership of the Application Message.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQoS2PubRecId() throws Exception {
       final String TOPIC = RandomUtil.randomString();
       final CountDownLatch ackLatch = new CountDownLatch(1);
@@ -523,7 +540,8 @@ public class QoSTests extends MQTT5TestSupport {
     * PUBREC. When the client connects again it resends the message, but the broker does not duplicate it. It simply
     * responds withe appropriate PUBREC and the client completes the QoS process.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQoS2DuplicatePub() throws Exception {
       final String TOPIC = RandomUtil.randomString();
       final CountDownLatch ackLatch = new CountDownLatch(1);
@@ -550,7 +568,7 @@ public class QoSTests extends MQTT5TestSupport {
       server.getRemotingService().addIncomingInterceptor(incomingInterceptor);
       server.getRemotingService().addOutgoingInterceptor(outgoingInterceptor);
 
-      Queue queue = server.createQueue(new QueueConfiguration(TOPIC));
+      Queue queue = server.createQueue(QueueConfiguration.of(TOPIC));
 
       MqttClient producer = createPahoClient("producer");
       MqttConnectionOptions connectionOptions = new MqttConnectionOptions();
@@ -580,7 +598,8 @@ public class QoSTests extends MQTT5TestSupport {
     * [MQTT-4.3.3-11] In the QoS 2 delivery protocol, the receiver MUST respond to a PUBREL packet by sending a PUBCOMP
     * packet containing the same Packet Identifier as the PUBREL.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQoS2PubCompId() throws Exception {
       final String TOPIC = RandomUtil.randomString();
       final CountDownLatch ackLatch = new CountDownLatch(1);
@@ -625,10 +644,14 @@ public class QoSTests extends MQTT5TestSupport {
     * [MQTT-4.3.3-13] In the QoS 2 delivery protocol, the receiver MUST continue the QoS 2 acknowledgement sequence even
     * if it has applied Application Message expiry.
     */
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testQoS2WithExpiration2() throws Exception {
       final String TOPIC = "myTopic";
-      server.createQueue(new QueueConfiguration(RandomUtil.randomString()).setAddress(TOPIC).setRoutingType(RoutingType.MULTICAST));
+      final String CONSUMER_ID = "consumer";
+      server.createQueue(QueueConfiguration.of(MQTTUtil.getCoreQueueFromMqttTopic(TOPIC, CONSUMER_ID, server.getConfiguration().getWildcardConfiguration()))
+                            .setAddress(MQTTUtil.getCoreAddressFromMqttTopic(TOPIC, server.getConfiguration().getWildcardConfiguration()))
+                            .setRoutingType(RoutingType.MULTICAST));
       final CountDownLatch ackLatch = new CountDownLatch(1);
       final CountDownLatch expireRefsLatch = new CountDownLatch(1);
       final long messageExpiryInterval = 1;
@@ -636,11 +659,11 @@ public class QoSTests extends MQTT5TestSupport {
       MQTTInterceptor outgoingInterceptor = (packet, connection) -> {
          if (packet.fixedHeader().messageType() == MqttMessageType.PUBREC) {
             // ensure the message is in the queue before trying to expire
-            Wait.assertTrue(() -> getSubscriptionQueue(TOPIC).getMessageCount() == 1, 2000, 100);
+            Wait.assertTrue(() -> getSubscriptionQueue(TOPIC, CONSUMER_ID).getMessageCount() == 1, 2000, 100);
             try {
                // ensure enough time has passed for the message to expire
                Thread.sleep(messageExpiryInterval * 1500);
-               getSubscriptionQueue(TOPIC).expireReferences(expireRefsLatch::countDown);
+               getSubscriptionQueue(TOPIC, CONSUMER_ID).expireReferences(expireRefsLatch::countDown);
                assertTrue(expireRefsLatch.await(2, TimeUnit.SECONDS));
             } catch (InterruptedException e) {
                e.printStackTrace();
@@ -666,6 +689,6 @@ public class QoSTests extends MQTT5TestSupport {
       producer.close();
 
       assertTrue(ackLatch.await(messageExpiryInterval * 2, TimeUnit.SECONDS));
-      Wait.assertEquals(1, () -> getSubscriptionQueue(TOPIC).getMessagesExpired());
+      Wait.assertEquals(1, () -> getSubscriptionQueue(TOPIC, CONSUMER_ID).getMessagesExpired());
    }
 }

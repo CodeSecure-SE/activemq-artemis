@@ -16,6 +16,8 @@
  */
 package org.apache.activemq.artemis.tests.performance.storage;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import java.io.File;
 import java.util.Collection;
 import java.util.concurrent.CountDownLatch;
@@ -23,6 +25,7 @@ import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import org.apache.activemq.artemis.api.config.ActiveMQDefaultConfiguration;
 import org.apache.activemq.artemis.api.core.Message;
@@ -46,8 +49,7 @@ import org.apache.activemq.artemis.core.transaction.Transaction;
 import org.apache.activemq.artemis.tests.util.ActiveMQTestBase;
 import org.apache.activemq.artemis.utils.actors.ArtemisExecutor;
 import org.apache.activemq.artemis.utils.runnables.AtomicRunnable;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public class PersistMultiThreadTest extends ActiveMQTestBase {
 
@@ -111,11 +113,11 @@ public class PersistMultiThreadTest extends ActiveMQTestBase {
 
       for (MyThread t : threads) {
          t.join();
-         Assert.assertEquals(0, t.errors.get());
+         assertEquals(0, t.errors.get());
       }
 
       deleteThread.join();
-      Assert.assertEquals(0, deleteThread.errors.get());
+      assertEquals(0, deleteThread.errors.get());
 
    }
 
@@ -270,6 +272,11 @@ public class PersistMultiThreadTest extends ActiveMQTestBase {
       }
 
       @Override
+      public Page usePage(long page, boolean createEntry, boolean createFile) {
+         return null;
+      }
+
+      @Override
       public boolean isPageFull() {
          return false;
       }
@@ -364,6 +371,11 @@ public class PersistMultiThreadTest extends ActiveMQTestBase {
       }
 
       @Override
+      public long getAddressElements() {
+         return 0;
+      }
+
+      @Override
       public long getMaxSize() {
          return 0;
       }
@@ -441,6 +453,14 @@ public class PersistMultiThreadTest extends ActiveMQTestBase {
       }
 
       @Override
+      public boolean page(Message message,
+                          Transaction tx,
+                          RouteContextList listCtx,
+                          Function<Message, Message> pageDecorator) throws Exception {
+         return false;
+      }
+
+      @Override
       public boolean checkPageFileExists(long page) throws Exception {
          return false;
       }
@@ -486,7 +506,7 @@ public class PersistMultiThreadTest extends ActiveMQTestBase {
       }
 
       @Override
-      public void addSize(int size, boolean sizeOnly) {
+      public void addSize(int size, boolean sizeOnly, boolean affectGlobal) {
       }
 
       @Override

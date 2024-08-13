@@ -16,17 +16,19 @@
  */
 package org.apache.activemq.artemis.core.server.impl;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import org.apache.activemq.artemis.core.config.impl.ConfigurationImpl;
 import org.apache.activemq.artemis.core.server.ActiveMQServer;
 import org.apache.activemq.artemis.logs.AssertionLoggerHandler;
-import org.apache.activemq.artemis.tests.util.ActiveMQTestBase;
+import org.apache.activemq.artemis.tests.util.ServerTestBase;
 import org.apache.activemq.artemis.utils.critical.CriticalAnalyzerAccessor;
 import org.apache.activemq.artemis.utils.critical.CriticalAnalyzerPolicy;
 import org.apache.activemq.artemis.utils.critical.CriticalComponentImpl;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-public class ActiveMQServerStartupTest extends ActiveMQTestBase {
+public class ActiveMQServerStartupTest extends ServerTestBase {
 
    @Test
    public void testTooLongToStartHalt() throws Exception {
@@ -57,8 +59,8 @@ public class ActiveMQServerStartupTest extends ActiveMQTestBase {
          // this will be faking a condition
          server.setState(ActiveMQServer.SERVER_STATE.STARTING);
          CriticalAnalyzerAccessor.fireActions(server.getCriticalAnalyzer(), new CriticalComponentImpl(server.getCriticalAnalyzer(), 2));
-         Assert.assertTrue(loggerHandler.findText("224116"));
-         Assert.assertEquals(ActiveMQServer.SERVER_STATE.STARTING, server.getState()); // should not be changed
+         assertTrue(loggerHandler.findText("224116"));
+         assertEquals(ActiveMQServer.SERVER_STATE.STARTING, server.getState()); // should not be changed
          server.stop();
       }
    }

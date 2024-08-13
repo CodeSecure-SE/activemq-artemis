@@ -30,16 +30,51 @@ public final class AMQPFederationConstants {
 
    /**
     * Address used by a remote broker instance to validate that an incoming federation connection
-    * has access right to perform federation operations. The user that connects to the AMQP federation
-    * endpoint and attempt to create the control link must have write access to this address.
+    * has access rights to perform federation operations. The user that connects to the AMQP federation
+    * endpoint and attempts to create the control link must have write access to this address and any
+    * address prefixed by this value.
+    *
+    * When securing a federation user account the user must have read and write permissions to addresses
+    * under this prefix using the broker defined delimiter, this include the ability to create non-durable
+    * resources.
+    *
+    * <pre>
+    *    $ACTIVEMQ_ARTEMIS_FEDERATION.#;
+    * </pre>
     */
-   public static final String FEDERATION_CONTROL_LINK_VALIDATION_ADDRESS = "$ACTIVEMQ_ARTEMIS_FEDERATION";
+   public static final String FEDERATION_BASE_VALIDATION_ADDRESS = "$ACTIVEMQ_ARTEMIS_FEDERATION";
+
+   /**
+    * The prefix value added when creating a federation control link beyond the initial portion of the
+    * validation address prefix. Links for command and control of federation operations follow the form:
+    *
+    * <pre>
+    *    $ACTIVEMQ_ARTEMIS_FEDERATION.control.&lt;unique-id&gt;
+    * </pre>
+    */
+   public static final String FEDERATION_CONTROL_LINK_PREFIX = "control";
+
+   /**
+    * The prefix value added when creating a federation events links beyond the initial portion of the
+    * validation address prefix. Links for federation events follow the form:
+    *
+    * <pre>
+    *    $ACTIVEMQ_ARTEMIS_FEDERATION.events.&lt;unique-id&gt;
+    * </pre>
+    */
+   public static final String FEDERATION_EVENTS_LINK_PREFIX = "events";
 
    /**
     * A desired capability added to the federation control link that must be offered
     * in return for a federation connection to be successfully established.
     */
    public static final Symbol FEDERATION_CONTROL_LINK = Symbol.getSymbol("AMQ_FEDERATION_CONTROL_LINK");
+
+   /**
+    * A desired capability added to the federation events links that must be offered
+    * in return for a federation event link to be successfully established.
+    */
+   public static final Symbol FEDERATION_EVENT_LINK = Symbol.getSymbol("AMQ_FEDERATION_EVENT_LINK");
 
    /**
     * Property name used to embed a nested map of properties meant to be applied if the federation
@@ -72,11 +107,40 @@ public final class AMQPFederationConstants {
    public static final String RECEIVER_CREDITS_LOW = "amqpLowCredits";
 
    /**
+    * Configuration property that defines the amount of credits to batch to an AMQP receiver link
+    * and the top up value when sending more credit once the broker has capacity available for
+    * them. this can be sent to the peer so that dual federation configurations share the same
+    * configuration on both sides of the connection.
+    */
+   public static final String PULL_RECEIVER_BATCH_SIZE = "amqpPullConsumerCredits";
+
+   /**
     * Configuration property used to convey the local side value to use when considering if a message
     * is a large message, this can be sent to the peer so that dual federation configurations share
     * the same configuration on both sides of the connection.
     */
    public static final String LARGE_MESSAGE_THRESHOLD = "minLargeMessageSize";
+
+   /**
+    * Configuration property used to convey the local side value to use when considering if federation queue
+    * consumers should filter using the filters defined on individual queue subscriptions, this can be sent
+    * to the peer so that dual federation configurations share the same configuration on both sides of the
+    * connection. This can be used to prevent multiple subscriptions on the same queue based on local demand
+    * with differing subscription filters but does imply that message that don't match those filters would
+    * be federated to the local broker.
+    */
+   public static final String IGNORE_QUEUE_CONSUMER_FILTERS = "ignoreQueueConsumerFilters";
+
+   /**
+    * Configuration property used to convey the local side value to use when considering if federation queue
+    * consumers should apply a consumer priority offset based on the subscription priority or should use a
+    * singular priority offset based on policy configuration. This can be sent to the peer so that dual
+    * federation configurations share the same configuration on both sides of the connection. This can be
+    * used to prevent multiple subscriptions on the same queue based on local demand with differing consumer
+    * priorities but does imply that care needs to be taken to ensure remote consumers would normally have
+    * a higher priority value than the configured default priority offset.
+    */
+   public static final String IGNORE_QUEUE_CONSUMER_PRIORITIES = "ignoreQueueConsumerPriorities";
 
    /**
     * A desired capability added to the federation queue receiver link that must be offered
@@ -196,5 +260,38 @@ public final class AMQPFederationConstants {
     * configuration for the policy.
     */
    public static final String TRANSFORMER_PROPERTIES_MAP = "transformer-properties-map";
+
+   /**
+    * Events sent across the events link will each carry an event type to indicate
+    * the event type which controls how the remote reacts to the given event. The type of
+    * event infers the payload of the structure of the message payload.
+    */
+   public static final Symbol EVENT_TYPE = Symbol.getSymbol("x-opt-amq-federation-ev-type");
+
+   /**
+    * Indicates that the message carries an address and queue name that was previously
+    * requested but did not exist, or that was federated but the remote consumer was closed
+    * due to removal of the queue on the target peer.
+    */
+   public static final String REQUESTED_QUEUE_ADDED = "REQUESTED_QUEUE_ADDED_EVENT";
+
+   /**
+    * Indicates that the message carries an address name that was previously requested
+    * but did not exist, or that was federated but the remote consumer was closed due to
+    * removal of the address on the target peer.
+    */
+   public static final String REQUESTED_ADDRESS_ADDED = "REQUESTED_ADDRESS_ADDED_EVENT";
+
+   /**
+    * Carries the name of a Queue that was either not present when a federation consumer was
+    * initiated and subsequently rejected, or was removed and has been recreated.
+    */
+   public static final String REQUESTED_QUEUE_NAME = "REQUESTED_QUEUE_NAME";
+
+   /**
+    * Carries the name of an Address that was either not present when a federation consumer was
+    * initiated and subsequently rejected, or was removed and has been recreated.
+    */
+   public static final String REQUESTED_ADDRESS_NAME = "REQUESTED_ADDRESS_NAME";
 
 }

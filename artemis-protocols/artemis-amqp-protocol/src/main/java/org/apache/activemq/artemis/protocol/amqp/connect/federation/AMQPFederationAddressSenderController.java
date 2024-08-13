@@ -17,12 +17,12 @@
 
 package org.apache.activemq.artemis.protocol.amqp.connect.federation;
 
+import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederation.FEDERATION_INSTANCE_RECORD;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.ADDRESS_AUTO_DELETE;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.ADDRESS_AUTO_DELETE_DELAY;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.ADDRESS_AUTO_DELETE_MSG_COUNT;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationConstants.FEDERATION_ADDRESS_RECEIVER;
 import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederationPolicySupport.FEDERATED_ADDRESS_SOURCE_PROPERTIES;
-import static org.apache.activemq.artemis.protocol.amqp.connect.federation.AMQPFederation.FEDERATION_INSTANCE_RECORD;
 import static org.apache.activemq.artemis.protocol.amqp.proton.AmqpSupport.QUEUE_CAPABILITY;
 import static org.apache.activemq.artemis.protocol.amqp.proton.AmqpSupport.TOPIC_CAPABILITY;
 import static org.apache.activemq.artemis.protocol.amqp.proton.AmqpSupport.verifyOfferedCapabilities;
@@ -42,11 +42,13 @@ import org.apache.activemq.artemis.core.server.QueueQueryResult;
 import org.apache.activemq.artemis.protocol.amqp.exceptions.ActiveMQAMQPException;
 import org.apache.activemq.artemis.protocol.amqp.exceptions.ActiveMQAMQPIllegalStateException;
 import org.apache.activemq.artemis.protocol.amqp.exceptions.ActiveMQAMQPInternalErrorException;
+import org.apache.activemq.artemis.protocol.amqp.exceptions.ActiveMQAMQPNotImplementedException;
 import org.apache.activemq.artemis.protocol.amqp.logger.ActiveMQAMQPProtocolMessageBundle;
 import org.apache.activemq.artemis.protocol.amqp.proton.AMQPSessionContext;
 import org.apache.activemq.artemis.protocol.amqp.proton.AmqpSupport;
 import org.apache.activemq.artemis.protocol.amqp.proton.ProtonServerSenderContext;
 import org.apache.activemq.artemis.protocol.amqp.proton.SenderController;
+import org.apache.activemq.artemis.reader.MessageUtil;
 import org.apache.activemq.artemis.selector.filter.FilterException;
 import org.apache.activemq.artemis.selector.impl.SelectorParser;
 import org.apache.qpid.proton.amqp.DescribedType;
@@ -66,7 +68,7 @@ import org.apache.qpid.proton.engine.Sender;
  */
 public final class AMQPFederationAddressSenderController extends AMQPFederationBaseSenderController {
 
-   public AMQPFederationAddressSenderController(AMQPSessionContext session) {
+   public AMQPFederationAddressSenderController(AMQPSessionContext session) throws ActiveMQAMQPException {
       super(session);
    }
 
@@ -76,12 +78,18 @@ public final class AMQPFederationAddressSenderController extends AMQPFederationB
       final Sender sender = senderContext.getSender();
       final Source source = (Source) sender.getRemoteSource();
       final String selector;
-      final SimpleString queueName = SimpleString.toSimpleString(sender.getName());
+      final SimpleString queueName = SimpleString.of(sender.getName());
       final Connection protonConnection = sender.getSession().getConnection();
       final org.apache.qpid.proton.engine.Record attachments = protonConnection.attachments();
 
-      if (attachments.get(FEDERATION_INSTANCE_RECORD, AMQPFederation.class) == null) {
+      AMQPFederation federation = attachments.get(FEDERATION_INSTANCE_RECORD, AMQPFederation.class);
+
+      if (federation == null) {
          throw new ActiveMQAMQPIllegalStateException("Cannot create a federation link from non-federation connection");
+      }
+
+      if (source == null) {
+         throw new ActiveMQAMQPNotImplementedException("Null source lookup not supported on federation links.");
       }
 
       // Match the settlement mode of the remote instead of relying on the default of MIXED.
@@ -110,22 +118,25 @@ public final class AMQPFederationAddressSenderController extends AMQPFederationB
       final long autoDeleteDelay = ((Number) addressSourceProperties.getOrDefault(ADDRESS_AUTO_DELETE_DELAY, 0)).longValue();
       final long autoDeleteMsgCount = ((Number) addressSourceProperties.getOrDefault(ADDRESS_AUTO_DELETE_MSG_COUNT, 0)).longValue();
 
-      // An address receiver may opt to filter on things like max message hops so we must
-      // check for a filter here and apply it if it exists.
-      final Map.Entry<Symbol, DescribedType> filter = AmqpSupport.findFilter(source.getFilter(), AmqpSupport.JMS_SELECTOR_FILTER_IDS);
+      // An address receiver may opt to filter on things like max message hops or no local message
+      // reflection so we must check for a filter here and apply it if it exists.
+      final String jmsSelector = getJMSSelectorFromFilters(source);
+      final Map.Entry<Symbol, DescribedType> noLocal = AmqpSupport.findFilter(source.getFilter(), AmqpSupport.NO_LOCAL_FILTER_IDS);
 
-      if (filter != null) {
-         selector = filter.getValue().getDescribed().toString();
-         try {
-            SelectorParser.parse(selector);
-         } catch (FilterException e) {
-            throw new ActiveMQAMQPException(AmqpError.INVALID_FIELD, "Invalid filter", ActiveMQExceptionType.INVALID_FILTER_EXPRESSION);
+      if (noLocal != null) {
+         String remoteContainerId = protonConnection.getRemoteContainer();
+         String noLocalFilter = MessageUtil.CONNECTION_ID_PROPERTY_NAME_STRING + "<>'" + remoteContainerId + "'";
+
+         if (jmsSelector == null) {
+            selector = noLocalFilter;
+         } else {
+            selector = jmsSelector + " AND " + noLocalFilter;
          }
       } else {
-         selector = null;
+         selector = jmsSelector;
       }
 
-      final SimpleString address = SimpleString.toSimpleString(source.getAddress());
+      final SimpleString address = SimpleString.of(source.getAddress());
       final AddressQueryResult addressQueryResult;
 
       try {
@@ -139,6 +150,8 @@ public final class AMQPFederationAddressSenderController extends AMQPFederationB
       }
 
       if (!addressQueryResult.isExists()) {
+         federation.registerMissingAddress(address.toString());
+
          throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.sourceAddressDoesntExist();
       }
 
@@ -154,7 +167,7 @@ public final class AMQPFederationAddressSenderController extends AMQPFederationB
       // Recover or create the queue we use to reflect the messages sent to the address to the remote
       QueueQueryResult queueQuery = sessionSPI.queueQuery(queueName, routingType, false);
       if (!queueQuery.isExists()) {
-         final QueueConfiguration configuration = new QueueConfiguration(queueName);
+         final QueueConfiguration configuration = QueueConfiguration.of(queueName);
 
          configuration.setAddress(address);
          configuration.setRoutingType(routingType);
@@ -178,7 +191,32 @@ public final class AMQPFederationAddressSenderController extends AMQPFederationB
                                                      ", but it is already mapped to a different address: " + queueQuery.getAddress());
       }
 
+      // Configure an action to register a watcher for this federated address to be created if it is
+      // removed during the lifetime of the federation receiver, if restored an event will be sent
+      // to the remote to prompt it to create a new receiver.
+      resourceDeletedAction = (e) -> federation.registerMissingAddress(address.toString());
+
       return (Consumer) sessionSPI.createSender(senderContext, queueName, null, false);
+   }
+
+   @SuppressWarnings("unchecked")
+   private String getJMSSelectorFromFilters(Source source) throws ActiveMQAMQPException {
+      final Map.Entry<Symbol, DescribedType> jmsSelector = AmqpSupport.findFilter(source.getFilter(), AmqpSupport.JMS_SELECTOR_FILTER_IDS);
+
+      String selectorString = null;
+
+      // Validate the JMS selector if present.
+      if (jmsSelector != null) {
+         selectorString = jmsSelector.getValue().getDescribed().toString();
+
+         try {
+            SelectorParser.parse(selectorString);
+         } catch (FilterException e) {
+            throw new ActiveMQAMQPException(AmqpError.INVALID_FIELD, "Invalid filter", ActiveMQExceptionType.INVALID_FILTER_EXPRESSION);
+         }
+      }
+
+      return selectorString;
    }
 
    private static RoutingType getRoutingType(Source source) {

@@ -31,6 +31,12 @@ public interface ActiveMQServerControl {
    String ADDRESS_MEMORY_USAGE_DESCRIPTION = "Memory used by all the addresses on broker for in-memory messages";
    String ADDRESS_MEMORY_USAGE_PERCENTAGE_DESCRIPTION = "Memory used by all the addresses on broker as a percentage of the global-max-size";
    String DISK_STORE_USAGE_DESCRIPTION = "Fraction of total disk store used";
+   String REPLICA_SYNC_DESCRIPTION = "If the initial replication synchronization process is complete";
+   String IS_ACTIVE_DESCRIPTION = "If the server is active";
+   String AUTHENTICATION_SUCCESS_COUNT = "Number of successful authentication attempts";
+   String AUTHENTICATION_FAILURE_COUNT = "Number of failed authentication attempts";
+   String AUTHORIZATION_SUCCESS_COUNT = "Number of successful authorization attempts";
+   String AUTHORIZATION_FAILURE_COUNT = "Number of failed authorization attempts";
 
    /**
     * Returns this server's name.
@@ -48,7 +54,7 @@ public interface ActiveMQServerControl {
    String getVersion();
 
 
-   @Attribute(desc = "Server is active")
+   @Attribute(desc = IS_ACTIVE_DESCRIPTION)
    boolean isActive();
 
    /**
@@ -108,6 +114,10 @@ public interface ActiveMQServerControl {
     */
    @Attribute(desc = "List of interceptors used by this server for outgoing messages")
    String[] getOutgoingInterceptorClassNames();
+
+
+   @Attribute(desc = "List of broker plugin class names used by this server")
+   String[] getBrokerPluginClassNames();
 
    /**
     * Returns whether this server is clustered.
@@ -470,7 +480,7 @@ public interface ActiveMQServerControl {
     * Returns whether the initial replication synchronization process with the backup server is complete; applicable for
     * either the primary or backup server.
     */
-   @Attribute(desc = "Whether the initial replication synchronization process with the backup server is complete")
+   @Attribute(desc = REPLICA_SYNC_DESCRIPTION)
    boolean isReplicaSync();
 
    /**
@@ -1406,6 +1416,21 @@ public interface ActiveMQServerControl {
                             @Parameter(desc = "a comma-separated list of roles allowed to create addresses", name = "createAddressRoles") String createAddressRoles,
                             @Parameter(desc = "a comma-separated list of roles allowed to delete addresses", name = "deleteAddressRoles") String deleteAddressRoles) throws Exception;
 
+   @Operation(desc = "Add security settings for addresses matching the addressMatch", impact = MBeanOperationInfo.ACTION)
+   void addSecuritySettings(@Parameter(desc = "an address match", name = "addressMatch") String addressMatch,
+                            @Parameter(desc = "a comma-separated list of roles allowed to send messages", name = "send") String sendRoles,
+                            @Parameter(desc = "a comma-separated list of roles allowed to consume messages", name = "consume") String consumeRoles,
+                            @Parameter(desc = "a comma-separated list of roles allowed to create durable queues", name = "createDurableQueueRoles") String createDurableQueueRoles,
+                            @Parameter(desc = "a comma-separated list of roles allowed to delete durable queues", name = "deleteDurableQueueRoles") String deleteDurableQueueRoles,
+                            @Parameter(desc = "a comma-separated list of roles allowed to create non durable queues", name = "createNonDurableQueueRoles") String createNonDurableQueueRoles,
+                            @Parameter(desc = "a comma-separated list of roles allowed to delete non durable queues", name = "deleteNonDurableQueueRoles") String deleteNonDurableQueueRoles,
+                            @Parameter(desc = "a comma-separated list of roles allowed to send management messages messages", name = "manage") String manageRoles,
+                            @Parameter(desc = "a comma-separated list of roles allowed to browse queues", name = "browse") String browseRoles,
+                            @Parameter(desc = "a comma-separated list of roles allowed to create addresses", name = "createAddressRoles") String createAddressRoles,
+                            @Parameter(desc = "a comma-separated list of roles allowed to delete addresses", name = "deleteAddressRoles") String deleteAddressRoles,
+                            @Parameter(desc = "a comma-separated list of roles allowed to view management resources", name = "view") String viewRoles,
+                            @Parameter(desc = "a comma-separated list of roles allowed to edit management resources", name = "edit") String editRoles) throws Exception;
+
    @Operation(desc = "Remove security settings for an address", impact = MBeanOperationInfo.ACTION)
    void removeSecuritySettings(@Parameter(desc = "an address match", name = "addressMatch") String addressMatch) throws Exception;
 
@@ -2051,5 +2076,17 @@ public interface ActiveMQServerControl {
 
    @Operation(desc = "Clear the authorization cache", impact = MBeanOperationInfo.ACTION)
    void clearAuthorizationCache() throws Exception;
+
+   @Attribute(desc = AUTHENTICATION_SUCCESS_COUNT)
+   long getAuthenticationSuccessCount();
+
+   @Attribute(desc = AUTHENTICATION_FAILURE_COUNT)
+   long getAuthenticationFailureCount();
+
+   @Attribute(desc = AUTHORIZATION_SUCCESS_COUNT)
+   long getAuthorizationSuccessCount();
+
+   @Attribute(desc = AUTHORIZATION_FAILURE_COUNT)
+   long getAuthorizationFailureCount();
 }
 

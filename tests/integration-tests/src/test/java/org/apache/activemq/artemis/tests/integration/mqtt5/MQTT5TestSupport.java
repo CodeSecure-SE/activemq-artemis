@@ -37,11 +37,10 @@ import org.apache.activemq.artemis.api.core.ActiveMQException;
 import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.api.core.TransportConfiguration;
 import org.apache.activemq.artemis.core.config.Configuration;
-import org.apache.activemq.artemis.core.postoffice.Binding;
-import org.apache.activemq.artemis.core.postoffice.impl.LocalQueueBinding;
 import org.apache.activemq.artemis.core.protocol.mqtt.MQTTInterceptor;
 import org.apache.activemq.artemis.core.protocol.mqtt.MQTTProtocolManager;
 import org.apache.activemq.artemis.core.protocol.mqtt.MQTTSessionState;
+import org.apache.activemq.artemis.core.protocol.mqtt.MQTTUtil;
 import org.apache.activemq.artemis.core.remoting.impl.AbstractAcceptor;
 import org.apache.activemq.artemis.core.remoting.impl.netty.TransportConstants;
 import org.apache.activemq.artemis.core.security.Role;
@@ -65,10 +64,8 @@ import org.eclipse.paho.mqttv5.client.MqttDisconnectResponse;
 import org.eclipse.paho.mqttv5.client.persist.MemoryPersistence;
 import org.eclipse.paho.mqttv5.common.MqttException;
 import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.rules.TestName;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -80,8 +77,8 @@ public class MQTT5TestSupport extends ActiveMQTestBase {
    protected static final String WS = "ws";
    protected static final String SSL = "ssl";
    protected static final String WSS = "wss";
-   protected static final SimpleString DEAD_LETTER_ADDRESS = new SimpleString("DLA");
-   protected static final SimpleString EXPIRY_ADDRESS = new SimpleString("EXPIRY");
+   protected static final SimpleString DEAD_LETTER_ADDRESS = SimpleString.of("DLA");
+   protected static final SimpleString EXPIRY_ADDRESS = SimpleString.of("EXPIRY");
 
    protected MqttClient createPahoClient(String clientId) throws MqttException {
       return createPahoClient(TCP, clientId);
@@ -107,8 +104,8 @@ public class MQTT5TestSupport extends ActiveMQTestBase {
       return new MqttAsyncClient(TCP + "://localhost:" + (isUseSsl() ? getSslPort() : getPort()), clientId, new MemoryPersistence());
    }
 
-   private static final Logger logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
-   protected static final long DEFAULT_TIMEOUT = 300000;
+   protected static final Logger logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
+   protected static final long DEFAULT_TIMEOUT_SEC = 60;
    protected ActiveMQServer server;
 
    protected int port = 1883;
@@ -142,9 +139,6 @@ public class MQTT5TestSupport extends ActiveMQTestBase {
    protected String noDeleteUser = "noDelete";
    protected String noDeletePass = "noDelete";
 
-   @Rule
-   public TestName name = new TestName();
-
    public MQTT5TestSupport() {
       this.protocolScheme = "mqtt";
    }
@@ -154,17 +148,12 @@ public class MQTT5TestSupport extends ActiveMQTestBase {
       return new File(new File(protectionDomain.getCodeSource().getLocation().getPath()), "../..").getCanonicalFile();
    }
 
-   @Override
-   public String getName() {
-      return name.getMethodName();
-   }
-
    public ActiveMQServer getServer() {
       return server;
    }
 
    @Override
-   @Before
+   @BeforeEach
    public void setUp() throws Exception {
       exceptions.clear();
       startBroker();
@@ -172,7 +161,7 @@ public class MQTT5TestSupport extends ActiveMQTestBase {
    }
 
    @Override
-   @After
+   @AfterEach
    public void tearDown() throws Exception {
       stopBroker();
       super.tearDown();
@@ -218,12 +207,12 @@ public class MQTT5TestSupport extends ActiveMQTestBase {
          // Configure roles
          HierarchicalRepository<Set<Role>> securityRepository = server.getSecurityRepository();
          HashSet<Role> value = new HashSet<>();
-         value.add(new Role("nothing", false, false, false, false, false, false, false, false, false, false));
-         value.add(new Role("browser", false, false, false, false, false, false, false, true, false, false));
-         value.add(new Role("guest", false, true, false, false, false, false, false, true, false, false));
-         value.add(new Role("full", true, true, true, true, true, true, true, true, true, true));
-         value.add(new Role("createAddress", false, false, false, false, false, false, false, false, true, false));
-         value.add(new Role("noDelete", true, true, true, false, true, false, true, true, true, true));
+         value.add(new Role("nothing", false, false, false, false, false, false, false, false, false, false, false, false));
+         value.add(new Role("browser", false, false, false, false, false, false, false, true, false, false, false, false));
+         value.add(new Role("guest", false, true, false, false, false, false, false, true, false, false, false, false));
+         value.add(new Role("full", true, true, true, true, true, true, true, true, true, true, false, false));
+         value.add(new Role("createAddress", false, false, false, false, false, false, false, false, true, false, false, false));
+         value.add(new Role("noDelete", true, true, true, false, true, false, true, true, true, true, false, false));
          securityRepository.addMatch("#", value);
 
          server.getConfiguration().setSecurityEnabled(true);
@@ -285,11 +274,11 @@ public class MQTT5TestSupport extends ActiveMQTestBase {
    }
 
    protected String getQueueName() {
-      return getClass().getName() + "." + name.getMethodName();
+      return getClass().getName() + "." + getTestMethodName();
    }
 
    protected String getTopicName() {
-      return getClass().getName() + "." + name.getMethodName();
+      return getClass().getName() + "." + getTestMethodName();
    }
 
    public boolean isPersistent() {
@@ -345,40 +334,16 @@ public class MQTT5TestSupport extends ActiveMQTestBase {
       return null;
    }
 
-   protected Queue getSubscriptionQueue(String TOPIC) {
-      try {
-         Object[] array = server.getPostOffice().getBindingsForAddress(SimpleString.toSimpleString(TOPIC)).getBindings().toArray();
-         if (array.length == 0) {
-            return null;
-         } else {
-            return ((LocalQueueBinding)array[0]).getQueue();
-         }
-      } catch (Exception e) {
-         e.printStackTrace();
-         return null;
-      }
+   protected Queue getSharedSubscriptionQueue(String mqttTopicFilter) {
+      return getSubscriptionQueue(mqttTopicFilter, null);
    }
 
-   protected Queue getSubscriptionQueue(String TOPIC, String clientId) {
-      return getSubscriptionQueue(TOPIC, clientId, null);
+   protected Queue getSubscriptionQueue(String mqttTopicFilter, String clientId) {
+      return server.locateQueue(MQTTUtil.getCoreQueueFromMqttTopic(mqttTopicFilter, clientId, server.getConfiguration().getWildcardConfiguration()));
    }
 
-   protected Queue getSubscriptionQueue(String TOPIC, String clientId, String sharedSubscriptionName) {
-      try {
-         for (Binding b : server.getPostOffice().getMatchingBindings(SimpleString.toSimpleString(TOPIC))) {
-            if (sharedSubscriptionName != null) {
-               if (((LocalQueueBinding)b).getQueue().getName().startsWith(SimpleString.toSimpleString(sharedSubscriptionName))) {
-                  return ((LocalQueueBinding)b).getQueue();
-               }
-            } else if (((LocalQueueBinding)b).getQueue().getName().startsWith(SimpleString.toSimpleString(clientId))) {
-               return ((LocalQueueBinding)b).getQueue();
-            }
-         }
-         return null;
-      } catch (Exception e) {
-         e.printStackTrace();
-         return null;
-      }
+   protected Queue getRetainedMessageQueue(String mqttTopicFilter) {
+      return server.locateQueue(MQTTUtil.getCoreRetainAddressFromMqttTopic(mqttTopicFilter, server.getConfiguration().getWildcardConfiguration()));
    }
 
    protected void setAcceptorProperty(String property) throws Exception {

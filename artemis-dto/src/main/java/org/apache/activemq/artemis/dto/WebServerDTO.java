@@ -104,6 +104,15 @@ public class WebServerDTO extends ComponentDTO {
    @XmlAttribute
    public Integer idleThreadTimeout = 60000;
 
+   @XmlAttribute
+   public Integer scanPeriod;
+
+   @XmlAttribute
+   public Integer maxRequestHeaderSize;
+
+   @XmlAttribute
+   public Integer maxResponseHeaderSize;
+
    public String getPath() {
       return path;
    }
@@ -166,6 +175,14 @@ public class WebServerDTO extends ComponentDTO {
 
    public void setIdleThreadTimeout(Integer idleThreadTimeout) {
       this.idleThreadTimeout = idleThreadTimeout;
+   }
+
+   public Integer getScanPeriod() {
+      return scanPeriod;
+   }
+
+   public void setScanPeriod(Integer scanPeriod) {
+      this.scanPeriod = scanPeriod;
    }
 
    public List<BindingDTO> getBindings() {

@@ -34,6 +34,7 @@ import org.apache.activemq.artemis.core.server.ActiveMQServer;
 import org.apache.activemq.artemis.core.server.management.Notification;
 import org.apache.activemq.artemis.core.server.management.NotificationListener;
 import org.apache.activemq.artemis.protocol.amqp.client.ProtonClientProtocolManager;
+import org.apache.activemq.artemis.protocol.amqp.connect.mirror.AckManager;
 import org.apache.activemq.artemis.protocol.amqp.connect.mirror.ReferenceIDSupplier;
 import org.apache.activemq.artemis.protocol.amqp.proton.AMQPConnectionContext;
 import org.apache.activemq.artemis.protocol.amqp.proton.AMQPConstants;
@@ -73,6 +74,8 @@ public class ProtonProtocolManager extends AbstractProtocolManager<AMQPMessage, 
    }
 
    private final ActiveMQServer server;
+
+   private AckManager ackRetryManager;
 
    private ReferenceIDSupplier referenceIDSupplier;
 
@@ -235,7 +238,7 @@ public class ProtonProtocolManager extends AbstractProtocolManager<AMQPMessage, 
          ttl = 0;
       }
 
-      String id = server.getConfiguration().getName();
+      String id = server.getNodeID().toString();
       boolean useCoreSubscriptionNaming = server.getConfiguration().isAmqpUseCoreSubscriptionNaming();
       AMQPConnectionContext amqpConnection = new AMQPConnectionContext(this, connectionCallback, id, (int) ttl, getMaxFrameSize(), AMQPConstants.Connection.DEFAULT_CHANNEL_MAX, useCoreSubscriptionNaming, server.getScheduledPool(), true, saslFactory, null, outgoing);
 
@@ -332,14 +335,14 @@ public class ProtonProtocolManager extends AbstractProtocolManager<AMQPMessage, 
    @Override
    public void setAnycastPrefix(String anycastPrefix) {
       for (String prefix : anycastPrefix.split(",")) {
-         prefixes.put(SimpleString.toSimpleString(prefix), RoutingType.ANYCAST);
+         prefixes.put(SimpleString.of(prefix), RoutingType.ANYCAST);
       }
    }
 
    @Override
    public void setMulticastPrefix(String multicastPrefix) {
       for (String prefix : multicastPrefix.split(",")) {
-         prefixes.put(SimpleString.toSimpleString(prefix), RoutingType.MULTICAST);
+         prefixes.put(SimpleString.of(prefix), RoutingType.MULTICAST);
       }
    }
 

@@ -16,6 +16,11 @@
  */
 package org.apache.activemq.artemis.tests.integration.mqtt5.spec.controlpackets;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -24,6 +29,7 @@ import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.api.core.management.CoreNotificationType;
 import org.apache.activemq.artemis.api.core.management.ManagementHelper;
 import org.apache.activemq.artemis.core.protocol.mqtt.MQTTReasonCodes;
+import org.apache.activemq.artemis.core.protocol.mqtt.MQTTUtil;
 import org.apache.activemq.artemis.core.security.CheckType;
 import org.apache.activemq.artemis.tests.integration.mqtt5.MQTT5TestSupport;
 import org.apache.activemq.artemis.tests.util.RandomUtil;
@@ -33,7 +39,8 @@ import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
 import org.eclipse.paho.mqttv5.client.MqttConnectionOptionsBuilder;
 import org.eclipse.paho.mqttv5.common.MqttException;
 import org.eclipse.paho.mqttv5.common.MqttMessage;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 public class PublishTestsWithSecurity extends MQTT5TestSupport {
 
@@ -42,7 +49,8 @@ public class PublishTestsWithSecurity extends MQTT5TestSupport {
       return true;
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testCreateAddressAuthorizationFailure() throws Exception {
       final String CLIENT_ID = "publisher";
       final CountDownLatch latch = new CountDownLatch(1);
@@ -73,9 +81,11 @@ public class PublishTestsWithSecurity extends MQTT5TestSupport {
       assertFalse(client.isConnected());
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testSendAuthorizationFailure() throws Exception {
       final String CLIENT_ID = "publisher";
+      final String TOPIC = "/foo";
       final CountDownLatch latch = new CountDownLatch(1);
       MqttConnectionOptions options = new MqttConnectionOptionsBuilder()
          .username(createAddressUser)
@@ -91,7 +101,7 @@ public class PublishTestsWithSecurity extends MQTT5TestSupport {
       });
 
       try {
-         client.publish("/foo", new byte[0], 2, false);
+         client.publish(TOPIC, new byte[0], 2, false);
          fail("Publishing should have failed with a security problem");
       } catch (MqttException e) {
          assertEquals(MQTTReasonCodes.NOT_AUTHORIZED, (byte) e.getReasonCode());
@@ -103,10 +113,11 @@ public class PublishTestsWithSecurity extends MQTT5TestSupport {
 
       assertFalse(client.isConnected());
 
-      Wait.assertTrue(() -> server.getAddressInfo(SimpleString.toSimpleString(".foo")) != null, 2000, 100);
+      Wait.assertTrue(() -> server.getAddressInfo(SimpleString.of(MQTTUtil.getCoreAddressFromMqttTopic(TOPIC, server.getConfiguration().getWildcardConfiguration()))) != null, 2000, 100);
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testAuthorizationSuccess() throws Exception {
       final String CLIENT_ID = "publisher";
       MqttConnectionOptions options = new MqttConnectionOptionsBuilder()
@@ -127,12 +138,14 @@ public class PublishTestsWithSecurity extends MQTT5TestSupport {
       client.isConnected();
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testWillAuthorizationSuccess() throws Exception {
       internalTestWillAuthorization(fullUser, fullPass, true);
    }
 
-   @Test(timeout = DEFAULT_TIMEOUT)
+   @Test
+   @Timeout(DEFAULT_TIMEOUT_SEC)
    public void testWillAuthorizationFailure() throws Exception {
       internalTestWillAuthorization(noprivUser, noprivPass, false);
    }

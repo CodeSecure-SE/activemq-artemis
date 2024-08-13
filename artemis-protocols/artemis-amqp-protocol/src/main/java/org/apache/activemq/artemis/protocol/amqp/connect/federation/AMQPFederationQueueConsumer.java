@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -90,13 +91,16 @@ public class AMQPFederationQueueConsumer implements FederationConsumerInternal {
 
    private static final Logger logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
-   public static final int DEFAULT_PULL_CREDIT_BATCH_SIZE = 100;
-
    public static final int DEFAULT_PENDING_MSG_CHECK_BACKOFF_MULTIPLIER = 2;
    public static final int DEFAULT_PENDING_MSG_CHECK_MAX_DELAY = 30;
 
    private static final Symbol[] DEFAULT_OUTCOMES = new Symbol[]{Accepted.DESCRIPTOR_SYMBOL, Rejected.DESCRIPTOR_SYMBOL,
                                                                  Released.DESCRIPTOR_SYMBOL, Modified.DESCRIPTOR_SYMBOL};
+
+
+   // Sequence ID value used to keep links that would otherwise have the same name from overlapping
+   // this generally occurs when consumers on the same queue have differing filters.
+   private static final AtomicLong LINK_SEQUENCE_ID = new AtomicLong();
 
    private final AMQPFederation federation;
    private final AMQPFederationConsumerConfiguration configuration;
@@ -162,7 +166,7 @@ public class AMQPFederationQueueConsumer implements FederationConsumerInternal {
          if (started) {
             started = false;
             connection.runLater(() -> {
-               federation.removeLinkClosedInterceptor(consumerInfo.getFqqn());
+               federation.removeLinkClosedInterceptor(consumerInfo.getId());
 
                if (receiver != null) {
                   try {
@@ -250,7 +254,8 @@ public class AMQPFederationQueueConsumer implements FederationConsumerInternal {
    private String generateLinkName() {
       return "federation-" + federation.getName() +
              "-queue-receiver-" + consumerInfo.getFqqn() +
-             "-" + federation.getServer().getNodeID();
+             "-" + federation.getServer().getNodeID() + ":" +
+             LINK_SEQUENCE_ID.getAndIncrement();
    }
 
    private void asyncCreateReceiver() {
@@ -308,11 +313,11 @@ public class AMQPFederationQueueConsumer implements FederationConsumerInternal {
             final ScheduledFuture<?> openTimeoutTask;
             final AtomicBoolean openTimedOut = new AtomicBoolean(false);
 
-            if (federation.getLinkAttachTimeout() > 0) {
+            if (configuration.getLinkAttachTimeout() > 0) {
                openTimeoutTask = federation.getServer().getScheduledPool().schedule(() -> {
                   openTimedOut.set(true);
                   federation.signalResourceCreateError(ActiveMQAMQPProtocolMessageBundle.BUNDLE.brokerConnectionTimeout());
-               }, federation.getLinkAttachTimeout(), TimeUnit.SECONDS);
+               }, configuration.getLinkAttachTimeout(), TimeUnit.SECONDS);
             } else {
                openTimeoutTask = null;
             }
@@ -341,7 +346,7 @@ public class AMQPFederationQueueConsumer implements FederationConsumerInternal {
                   // Intercept remote close and check for valid reasons for remote closure such as
                   // the remote peer not having a matching queue for this subscription or from an
                   // operator manually closing the link.
-                  federation.addLinkClosedInterceptor(consumerInfo.getFqqn(), remoteCloseIntercepter);
+                  federation.addLinkClosedInterceptor(consumerInfo.getId(), remoteCloseIntercepter);
 
                   receiver = new AMQPFederatedQueueDeliveryReceiver(localQueue, protonReceiver);
 
@@ -408,7 +413,7 @@ public class AMQPFederationQueueConsumer implements FederationConsumerInternal {
          super(session.getSessionSPI(), session.getAMQPConnectionContext(), session, receiver);
 
          this.localQueue = localQueue;
-         this.cachedFqqn = SimpleString.toSimpleString(consumerInfo.getFqqn());
+         this.cachedFqqn = SimpleString.of(consumerInfo.getFqqn());
       }
 
       @Override
@@ -444,7 +449,7 @@ public class AMQPFederationQueueConsumer implements FederationConsumerInternal {
             throw new ActiveMQAMQPInternalErrorException("Remote should have sent an valid Target but we got: " + target);
          }
 
-         address = SimpleString.toSimpleString(target.getAddress());
+         address = SimpleString.of(target.getAddress());
          defRoutingType = getRoutingType(target.getCapabilities(), address);
 
          try {
@@ -509,7 +514,7 @@ public class AMQPFederationQueueConsumer implements FederationConsumerInternal {
          // credit. This also allows consumers created on the remote side of a federation connection
          // to read from properties sent from the federation source that indicate the values that are
          // configured on the local side.
-         if (federation.getReceiverCredits() > 0) {
+         if (configuration.getReceiverCredits() > 0) {
             return createCreditRunnable(configuration.getReceiverCredits(), configuration.getReceiverCreditsLow(), receiver, connection, this);
          } else {
             return this::checkIfCreditTopUpNeeded;
@@ -572,7 +577,7 @@ public class AMQPFederationQueueConsumer implements FederationConsumerInternal {
             return; // Closed before this was triggered.
          }
 
-         receiver.flow(DEFAULT_PULL_CREDIT_BATCH_SIZE);
+         receiver.flow(configuration.getPullReceiverBatchSize());
          connection.instantFlush();
          lastBacklogCheckDelay = 0;
          creditTopUpInProgress.set(false);

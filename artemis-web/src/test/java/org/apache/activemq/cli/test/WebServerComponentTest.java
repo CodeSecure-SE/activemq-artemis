@@ -16,10 +16,18 @@
  */
 package org.apache.activemq.cli.test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SNIHostName;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocket;
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -30,7 +38,9 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -38,6 +48,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
@@ -74,7 +85,9 @@ import org.apache.activemq.artemis.dto.AppDTO;
 import org.apache.activemq.artemis.dto.BindingDTO;
 import org.apache.activemq.artemis.dto.BrokerDTO;
 import org.apache.activemq.artemis.dto.WebServerDTO;
-import org.apache.activemq.artemis.utils.ThreadLeakCheckRule;
+import org.apache.activemq.artemis.tests.util.ArtemisTestCase;
+import org.apache.activemq.artemis.utils.PemConfigUtil;
+import org.apache.activemq.artemis.utils.Wait;
 import org.apache.http.HttpException;
 import org.apache.http.HttpHost;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -92,36 +105,35 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.ThreadPool;
 import org.eclipse.jetty.webapp.WebAppContext;
 import org.eclipse.jetty.webapp.WebInfConfiguration;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-public class WebServerComponentTest extends Assert {
+public class WebServerComponentTest extends ArtemisTestCase {
 
-   @Rule
-   public ThreadLeakCheckRule leakCheckRule = new ThreadLeakCheckRule();
+   @TempDir
+   public File tempFolder;
 
    static final String URL = System.getProperty("url", "http://localhost:8161/WebServerComponentTest.txt");
    static final String SECURE_URL = System.getProperty("url", "https://localhost:8448/WebServerComponentTest.txt");
 
    static final String KEY_STORE_PATH = WebServerComponentTest.class.getClassLoader().getResource("server-keystore.p12").getFile();
 
-   static final String PEM_KEY_STORE_PATH = WebServerComponentTest.class.getClassLoader().getResource("server-pem-props-config.txt").getFile();
+   static final String PEM_KEY_STORE_PATH = WebServerComponentTest.class.getClassLoader().getResource("server-keystore.pemcfg").getFile();
 
    static final String KEY_STORE_PASSWORD = "securepass";
 
    private List<ActiveMQComponent> testedComponents;
 
-   @Before
+   @BeforeEach
    public void setupNetty() throws URISyntaxException {
       System.setProperty("jetty.base", "./target");
       // Configure the client.
       testedComponents = new ArrayList<>();
    }
 
-   @After
+   @AfterEach
    public void tearDown() throws Exception {
       System.clearProperty("jetty.base");
       for (ActiveMQComponent c : testedComponents) {
@@ -151,7 +163,7 @@ public class WebServerComponentTest extends Assert {
          webServerDTO.customizer = TestCustomizer.class.getName();
       }
       WebServerComponent webServerComponent = new WebServerComponent();
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
       webServerComponent.configure(webServerDTO, "./src/test/resources/", "./src/test/resources/");
       testedComponents.add(webServerComponent);
       webServerComponent.start();
@@ -178,9 +190,9 @@ public class WebServerComponentTest extends Assert {
       // Wait for the server to close the connection.
       ch.close();
       ch.eventLoop().shutdownNow();
-      Assert.assertTrue(webServerComponent.isStarted());
+      assertTrue(webServerComponent.isStarted());
       webServerComponent.stop(true);
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
    }
 
    @Test
@@ -194,7 +206,7 @@ public class WebServerComponentTest extends Assert {
       webServerDTO.maxThreads = 75;
       webServerDTO.minThreads = 50;
       WebServerComponent webServerComponent = new WebServerComponent();
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
       webServerComponent.configure(webServerDTO, "./src/test/resources/", "./src/test/resources/");
       testedComponents.add(webServerComponent);
       webServerComponent.start();
@@ -202,7 +214,7 @@ public class WebServerComponentTest extends Assert {
       assertEquals((long) webServerDTO.minThreads, jettyPool.getMinThreads());
       assertEquals((long) webServerDTO.maxThreads, jettyPool.getMaxThreads());
       webServerComponent.stop(true);
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
    }
 
    @Test
@@ -214,19 +226,19 @@ public class WebServerComponentTest extends Assert {
       webServerDTO.path = "webapps";
       webServerDTO.webContentEnabled = true;
       WebServerComponent webServerComponent = new WebServerComponent();
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
       webServerComponent.configure(webServerDTO, "./src/test/resources/", "./src/test/resources/");
       webServerComponent.start();
       // Make the connection attempt.
       verifyConnection(webServerComponent.getPort());
-      Assert.assertTrue(webServerComponent.isStarted());
+      assertTrue(webServerComponent.isStarted());
 
       //usual stop won't actually stop it
       webServerComponent.stop();
       assertTrue(webServerComponent.isStarted());
 
       webServerComponent.stop(true);
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
    }
 
    @Test
@@ -238,19 +250,19 @@ public class WebServerComponentTest extends Assert {
       webServerDTO.path = "webapps";
       webServerDTO.webContentEnabled = true;
       WebServerComponent webServerComponent = new WebServerComponent();
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
       webServerComponent.configure(webServerDTO, "./src/test/resources/", "./src/test/resources/");
       webServerComponent.start();
       // Make the connection attempt.
       verifyConnection(webServerComponent.getPort());
-      Assert.assertTrue(webServerComponent.isStarted());
+      assertTrue(webServerComponent.isStarted());
 
       //usual stop won't actually stop it
       webServerComponent.stop();
       assertTrue(webServerComponent.isStarted());
 
       webServerComponent.stop(true);
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
 
       webServerComponent.start();
       assertTrue(webServerComponent.isStarted());
@@ -258,7 +270,7 @@ public class WebServerComponentTest extends Assert {
       verifyConnection(webServerComponent.getPort());
 
       webServerComponent.stop(true);
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
    }
 
    private WebServerComponent startSimpleSecureServer(Boolean sniHostCheck, Boolean sniRequired) throws Exception {
@@ -289,9 +301,10 @@ public class WebServerComponentTest extends Assert {
       webServerDTO.setBindings(Collections.singletonList(bindingDTO));
       webServerDTO.path = "webapps";
       webServerDTO.webContentEnabled = true;
+      webServerDTO.setScanPeriod(1);
 
       WebServerComponent webServerComponent = new WebServerComponent();
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
       webServerComponent.configure(webServerDTO, "./src/test/resources/", "./src/test/resources/");
       testedComponents.add(webServerComponent);
       webServerComponent.start();
@@ -340,9 +353,9 @@ public class WebServerComponentTest extends Assert {
       // Wait for the server to close the connection.
       ch.close();
       ch.eventLoop().shutdownNow();
-      Assert.assertTrue(webServerComponent.isStarted());
+      assertTrue(webServerComponent.isStarted());
       webServerComponent.stop(true);
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
    }
 
    @Test
@@ -355,7 +368,7 @@ public class WebServerComponentTest extends Assert {
       WebServerComponent webServerComponent = startSimpleSecureServer(bindingDTO);
       try {
          int port = webServerComponent.getPort(0);
-         Assert.assertEquals(200, testSimpleSecureServer("localhost", port, null, null));
+         assertEquals(200, testSimpleSecureServer("localhost", port, null, null));
       } finally {
          webServerComponent.stop(true);
       }
@@ -380,9 +393,9 @@ public class WebServerComponentTest extends Assert {
       WebServerComponent webServerComponent = startSimpleSecureServer(enabled, null);
       try {
          int port = webServerComponent.getPort(0);
-         Assert.assertEquals(200, testSimpleSecureServer("localhost", port, "localhost", null));
-         Assert.assertEquals(200, testSimpleSecureServer("localhost", port, "127.0.0.1", null));
-         Assert.assertEquals(enabled == null || enabled ? 400 : 200, testSimpleSecureServer("localhost", port, "artemis", null));
+         assertEquals(200, testSimpleSecureServer("localhost", port, "localhost", null));
+         assertEquals(200, testSimpleSecureServer("localhost", port, "127.0.0.1", null));
+         assertEquals(enabled == null || enabled ? 400 : 200, testSimpleSecureServer("localhost", port, "artemis", null));
       } finally {
          webServerComponent.stop(true);
       }
@@ -407,21 +420,134 @@ public class WebServerComponentTest extends Assert {
       WebServerComponent webServerComponent = startSimpleSecureServer(null, enabled);
       try {
          int port = webServerComponent.getPort(0);
-         Assert.assertEquals(200, testSimpleSecureServer("localhost", port, null, "localhost"));
-         Assert.assertEquals(200, testSimpleSecureServer("localhost", port, null, "127.0.0.1"));
-         Assert.assertEquals(enabled != null && enabled ? 400 : 200, testSimpleSecureServer("localhost", port, null, null));
-         Assert.assertEquals(enabled != null && enabled ? 400 : 200, testSimpleSecureServer("localhost", port, null, "artemis"));
+         assertEquals(200, testSimpleSecureServer("localhost", port, null, "localhost"));
+         assertEquals(200, testSimpleSecureServer("localhost", port, null, "127.0.0.1"));
+         assertEquals(enabled != null && enabled ? 400 : 200, testSimpleSecureServer("localhost", port, null, null));
+         assertEquals(enabled != null && enabled ? 400 : 200, testSimpleSecureServer("localhost", port, null, "artemis"));
+      } finally {
+         webServerComponent.stop(true);
+      }
+   }
+
+   @Test
+   public void testSSLAutoReload() throws Exception {
+      File keyStoreFile = new File(tempFolder, "server-keystore.p12");
+
+      Files.copy(WebServerComponentTest.class.getClassLoader().getResourceAsStream("server-keystore.p12"),
+         keyStoreFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+      BindingDTO bindingDTO = new BindingDTO();
+      bindingDTO.setSslAutoReload(true);
+      bindingDTO.setKeyStorePath(keyStoreFile.getAbsolutePath());
+      bindingDTO.setKeyStorePassword(KEY_STORE_PASSWORD);
+      WebServerComponent webServerComponent = startSimpleSecureServer(bindingDTO);
+
+      try {
+         int port = webServerComponent.getPort(0);
+         AtomicReference<SSLSession> sslSessionReference = new AtomicReference<>();
+         HostnameVerifier hostnameVerifier = (s, sslSession) -> {
+            sslSessionReference.set(sslSession);
+            return true;
+         };
+
+         // check server certificate contains ActiveMQ Artemis Server
+         assertTrue(testSimpleSecureServer("localhost", port, "localhost", null, hostnameVerifier) == 200 &&
+            sslSessionReference.get().getPeerCertificates()[0].toString().contains("CN=ActiveMQ Artemis Server,"));
+
+         // check server certificate doesn't contain ActiveMQ Artemis Server
+         assertFalse(testSimpleSecureServer("localhost", port, "localhost", null, hostnameVerifier) == 200 &&
+            sslSessionReference.get().getPeerCertificates()[0].toString().contains("CN=ActiveMQ Artemis Other Server,"));
+
+         // update server keystore
+         Files.copy(WebServerComponentTest.class.getClassLoader().getResourceAsStream("other-server-keystore.p12"),
+            keyStoreFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+         // check server certificate contains ActiveMQ Artemis Other Server
+         Wait.assertTrue(() -> testSimpleSecureServer("localhost", port, "localhost", null, hostnameVerifier) == 200 &&
+            sslSessionReference.get().getPeerCertificates()[0].toString().contains("CN=ActiveMQ Artemis Other Server,"));
+
+         // check server certificate doesn't contain ActiveMQ Artemis Server
+         assertFalse(testSimpleSecureServer("localhost", port, "localhost", null, hostnameVerifier) == 200 &&
+            sslSessionReference.get().getPeerCertificates()[0].toString().contains("CN=ActiveMQ Artemis Server,"));
+      } finally {
+         webServerComponent.stop(true);
+      }
+   }
+
+   @Test
+   public void testSSLAutoReloadPemConfigSources() throws Exception {
+      File serverKeyFile = new File(tempFolder, "server-key.pem");
+      File serverCertFile = new File(tempFolder, "server-cert.pem");
+      File serverPemConfigFile = new File(tempFolder, "server-pem-config.properties");
+
+      Files.copy(WebServerComponentTest.class.getClassLoader().getResourceAsStream("server-key.pem"),
+         serverKeyFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+      Files.copy(WebServerComponentTest.class.getClassLoader().getResourceAsStream("server-cert.pem"),
+         serverCertFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+      Files.write(serverPemConfigFile.toPath(), Arrays.asList(new String[]{
+         "source.key=" + serverKeyFile.getAbsolutePath(),
+         "source.cert=" + serverCertFile.getAbsolutePath()
+      }));
+
+      BindingDTO bindingDTO = new BindingDTO();
+      bindingDTO.setSslAutoReload(true);
+      bindingDTO.setKeyStorePath(serverPemConfigFile.getAbsolutePath());
+      bindingDTO.setKeyStoreType(PemConfigUtil.PEMCFG_STORE_TYPE);
+
+      WebServerComponent webServerComponent = startSimpleSecureServer(bindingDTO);
+
+      try {
+         int port = webServerComponent.getPort(0);
+         AtomicReference<SSLSession> sslSessionReference = new AtomicReference<>();
+         HostnameVerifier hostnameVerifier = (s, sslSession) -> {
+            sslSessionReference.set(sslSession);
+            return true;
+         };
+
+         // check server certificate contains ActiveMQ Artemis Server
+         assertTrue(testSimpleSecureServer("localhost", port, "localhost", null, hostnameVerifier) == 200 &&
+            sslSessionReference.get().getPeerCertificates()[0].toString().contains("DNSName: server.artemis.activemq"));
+
+         // check server certificate doesn't contain ActiveMQ Artemis Server
+         assertFalse(testSimpleSecureServer("localhost", port, "localhost", null, hostnameVerifier) == 200 &&
+            sslSessionReference.get().getPeerCertificates()[0].toString().contains("DNSName: other-server.artemis.activemq"));
+
+         // update server PEM config sources
+         Files.copy(WebServerComponentTest.class.getClassLoader().getResourceAsStream("other-server-key.pem"),
+            serverKeyFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+         Files.copy(WebServerComponentTest.class.getClassLoader().getResourceAsStream("other-server-cert.pem"),
+            serverCertFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+         // check server certificate contains ActiveMQ Artemis Other Server
+         Wait.assertTrue(() -> testSimpleSecureServer("localhost", port, "localhost", null, hostnameVerifier) == 200 &&
+            sslSessionReference.get().getPeerCertificates()[0].toString().contains("DNSName: other-server.artemis.activemq"));
+
+         // check server certificate doesn't contain ActiveMQ Artemis Server
+         assertFalse(testSimpleSecureServer("localhost", port, "localhost", null, hostnameVerifier) == 200 &&
+            sslSessionReference.get().getPeerCertificates()[0].toString().contains("DNSName: server.artemis.activemq"));
       } finally {
          webServerComponent.stop(true);
       }
    }
 
    private int testSimpleSecureServer(String webServerHostname, int webServerPort, String requestHostname, String sniHostname) throws Exception {
+      return testSimpleSecureServer(webServerHostname, webServerPort, requestHostname, sniHostname, null);
+   }
+
+   private int testSimpleSecureServer(String webServerHostname, int webServerPort, String requestHostname, String sniHostname, HostnameVerifier hostnameVerifier) throws Exception {
       HttpGet request = new HttpGet("https://" + (requestHostname != null ? requestHostname : webServerHostname) + ":" + webServerPort + "/WebServerComponentTest.txt");
 
       HttpHost webServerHost = HttpHost.create("https://" + webServerHostname + ":" + webServerPort);
       SSLContext sslContext = new SSLContextBuilder().loadTrustMaterial(null, (certificate, authType) -> true).build();
-      SSLConnectionSocketFactory sslConnectionSocketFactory = new SSLConnectionSocketFactory(sslContext, new NoopHostnameVerifier()) {
+
+      if (hostnameVerifier == null) {
+         hostnameVerifier = new NoopHostnameVerifier();
+      }
+
+      SSLConnectionSocketFactory sslConnectionSocketFactory = new SSLConnectionSocketFactory(sslContext, hostnameVerifier) {
          @Override
          protected void prepareSocket(SSLSocket socket) throws IOException {
             super.prepareSocket(socket);
@@ -476,7 +602,7 @@ public class WebServerComponentTest extends Assert {
       webServerDTO.webContentEnabled = true;
 
       WebServerComponent webServerComponent = new WebServerComponent();
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
       webServerComponent.configure(webServerDTO, "./src/test/resources/", "./src/test/resources/");
       testedComponents.add(webServerComponent);
       webServerComponent.start();
@@ -516,9 +642,9 @@ public class WebServerComponentTest extends Assert {
       // Wait for the server to close the connection.
       ch.close();
       ch.eventLoop().shutdownNow();
-      Assert.assertTrue(webServerComponent.isStarted());
+      assertTrue(webServerComponent.isStarted());
       webServerComponent.stop(true);
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
    }
 
    @Test
@@ -553,7 +679,7 @@ public class WebServerComponentTest extends Assert {
       XmlBrokerFactoryHandler xmlHandler = new XmlBrokerFactoryHandler();
       BrokerDTO broker = xmlHandler.createBroker(bootstrap.toURI(), brokerHome.getAbsolutePath(), brokerHome.getAbsolutePath(), brokerHome.toURI());
       assertNotNull(broker.web);
-      assertNotNull("password codec not picked up!", broker.web.getDefaultBinding().passwordCodec);
+      assertNotNull(broker.web.getDefaultBinding().passwordCodec, "password codec not picked up!");
 
       assertEquals(keyPassword, broker.web.getDefaultBinding().getKeyStorePassword());
       assertEquals(trustPassword, broker.web.getDefaultBinding().getTrustStorePassword());
@@ -569,7 +695,7 @@ public class WebServerComponentTest extends Assert {
       XmlBrokerFactoryHandler xmlHandler = new XmlBrokerFactoryHandler();
       BrokerDTO broker = xmlHandler.createBroker(bootstrap.toURI(), brokerHome.getAbsolutePath(), brokerHome.getAbsolutePath(), brokerHome.toURI());
       assertNotNull(broker.web);
-      assertNotNull("password codec not picked up!", broker.web.getDefaultBinding().passwordCodec);
+      assertNotNull(broker.web.getDefaultBinding().passwordCodec, "password codec not picked up!");
 
       assertEquals("http://localhost:8161", broker.web.getDefaultBinding().uri);
       assertEquals(keyPassword, broker.web.getDefaultBinding().getKeyStorePassword());
@@ -585,7 +711,7 @@ public class WebServerComponentTest extends Assert {
       WebServerDTO webServerDTO = createDefaultWebServerDTO(warName, url);
 
       WebServerComponent webServerComponent = new WebServerComponent();
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
       testedComponents.add(webServerComponent);
       webServerComponent.configure(webServerDTO, "./target", "./target");
       WebAppContext ctxt = WebServerComponentTestAccessor.createWebAppContext(webServerComponent, url, warName, Paths.get(".").resolve("target").toAbsolutePath(), null);
@@ -611,11 +737,11 @@ public class WebServerComponentTest extends Assert {
 
       //make sure those garbage are gone
       for (File file : garbage) {
-         assertFalse("file exist: " + file.getAbsolutePath(), file.exists());
+         assertFalse(file.exists(), "file exist: " + file.getAbsolutePath());
       }
-      Assert.assertTrue(webServerComponent.isStarted());
+      assertTrue(webServerComponent.isStarted());
       webServerComponent.stop(true);
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
    }
 
    @Test
@@ -630,16 +756,16 @@ public class WebServerComponentTest extends Assert {
       WebAppContext ctxt = WebServerComponentTestAccessor.createWebAppContext(webServerComponent, url, warName, Paths.get(".").resolve("target").toAbsolutePath(), null);
       testedComponents.add(webServerComponent);
 
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
       webServerComponent.start();
 
       File tmpDir = ctxt.getTempDirectory();
-      Assert.assertTrue(tmpDir.getParentFile().listFiles().length == 1);
-      Assert.assertEquals(tmpDir.getName(), warName);
-      Assert.assertTrue(webServerComponent.isStarted());
+      assertTrue(tmpDir.getParentFile().listFiles().length == 1);
+      assertEquals(tmpDir.getName(), warName);
+      assertTrue(webServerComponent.isStarted());
 
       webServerComponent.stop(true);
-      Assert.assertFalse(webServerComponent.isStarted());
+      assertFalse(webServerComponent.isStarted());
    }
 
    @Test

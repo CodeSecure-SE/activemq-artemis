@@ -49,6 +49,7 @@ import org.apache.activemq.artemis.core.client.impl.Topology;
 import org.apache.activemq.artemis.core.client.impl.TopologyManager;
 import org.apache.activemq.artemis.core.client.impl.TopologyMemberImpl;
 import org.apache.activemq.artemis.core.config.impl.ConfigurationImpl;
+import org.apache.activemq.artemis.core.filter.impl.FilterImpl;
 import org.apache.activemq.artemis.core.postoffice.Binding;
 import org.apache.activemq.artemis.core.postoffice.PostOffice;
 import org.apache.activemq.artemis.core.postoffice.impl.PostOfficeImpl;
@@ -456,21 +457,18 @@ public final class ClusterConnectionImpl implements ClusterConnection, AfterConn
 
       if (managementService != null) {
          TypedProperties props = new TypedProperties();
-         props.putSimpleStringProperty(new SimpleString("name"), name);
+         props.putSimpleStringProperty(SimpleString.of("name"), name);
          //nodeID can be null if there's only a backup
          SimpleString nodeId = nodeManager.getNodeId();
          Notification notification = new Notification(nodeId == null ? null : nodeId.toString(), CoreNotificationType.CLUSTER_CONNECTION_STOPPED, props);
          managementService.sendNotification(notification);
       }
-      executor.execute(new Runnable() {
-         @Override
-         public void run() {
-            synchronized (ClusterConnectionImpl.this) {
-               closeLocator(serverLocator);
-               serverLocator = null;
-            }
-
+      executor.execute(() -> {
+         synchronized (ClusterConnectionImpl.this) {
+            closeLocator(serverLocator);
+            serverLocator = null;
          }
+
       });
 
       started = false;
@@ -554,9 +552,13 @@ public final class ClusterConnectionImpl implements ClusterConnection, AfterConn
     * @return
     */
    @Override
-   public boolean removeMember(final long uniqueEventID, final String nodeId) {
+   public boolean removeMember(final long uniqueEventID, final String nodeId, final boolean disconnect) {
       if (nodeId.equals(nodeManager.getNodeId().toString())) {
-         ActiveMQServerLogger.LOGGER.possibleSplitBrain(nodeId);
+         if (!disconnect) {
+            ActiveMQServerLogger.LOGGER.possibleSplitBrain(nodeId);
+         } else {
+            ActiveMQServerLogger.LOGGER.nodeLeavingCluster(nodeId);
+         }
          return false;
       }
       return true;
@@ -713,7 +715,7 @@ public final class ClusterConnectionImpl implements ClusterConnection, AfterConn
 
       if (managementService != null) {
          TypedProperties props = new TypedProperties();
-         props.putSimpleStringProperty(new SimpleString("name"), name);
+         props.putSimpleStringProperty(SimpleString.of("name"), name);
          Notification notification = new Notification(nodeManager.getNodeId().toString(), CoreNotificationType.CLUSTER_CONNECTION_STARTED, props);
          logger.debug("sending notification: {}", notification);
          managementService.sendNotification(notification);
@@ -756,21 +758,22 @@ public final class ClusterConnectionImpl implements ClusterConnection, AfterConn
          return;
       }
 
-      // if the node is more than 1 hop away, we do not create a bridge for direct cluster connection
-      if (allowDirectConnectionsOnly && !allowableConnections.contains(topologyMember.getPrimary().newTransportConfig(TRANSPORT_CONFIG_NAME))) {
-         return;
-      }
-
       // FIXME required to prevent cluster connections w/o discovery group
       // and empty static connectors to create bridges... ulgy!
       if (serverLocator == null) {
          return;
       }
+
       /*we don't create bridges to backups*/
       if (topologyMember.getPrimary() == null) {
          if (logger.isTraceEnabled()) {
             logger.trace("{} ignoring call with nodeID={}, topologyMember={}, last={}", this, nodeID, topologyMember, last);
          }
+         return;
+      }
+
+      // if the node is more than 1 hop away, we do not create a bridge for direct cluster connection
+      if (allowDirectConnectionsOnly && !allowableConnections.contains(topologyMember.getPrimary().newTransportConfig(TRANSPORT_CONFIG_NAME))) {
          return;
       }
 
@@ -796,7 +799,7 @@ public final class ClusterConnectionImpl implements ClusterConnection, AfterConn
                } else {
                   // Add binding in storage so the queue will get reloaded on startup and we can find it - it's never
                   // actually routed to at that address though
-                  queue = server.createQueue(new QueueConfiguration(queueName).setRoutingType(RoutingType.MULTICAST).setAutoCreateAddress(true).setMaxConsumers(-1).setPurgeOnNoConsumers(false).setInternal(true));
+                  queue = server.createQueue(QueueConfiguration.of(queueName).setRoutingType(RoutingType.MULTICAST).setAutoCreateAddress(true).setMaxConsumers(-1).setPurgeOnNoConsumers(false).setInternal(true));
                }
 
                // There are a few things that will behave differently when it's an internal queue
@@ -816,7 +819,7 @@ public final class ClusterConnectionImpl implements ClusterConnection, AfterConn
    }
 
    public SimpleString getSfQueueName(String nodeID) {
-      return new SimpleString(storeAndForwardPrefix + name + "." + nodeID);
+      return SimpleString.of(storeAndForwardPrefix + name + "." + nodeID);
    }
 
    @Override
@@ -1051,18 +1054,15 @@ public final class ClusterConnectionImpl implements ClusterConnection, AfterConn
 
          bridge.stop();
 
-         bridge.getExecutor().execute(new Runnable() {
-            @Override
-            public void run() {
-               try {
-                  if (disconnected) {
-                     targetLocator.cleanup();
-                  } else {
-                     targetLocator.close();
-                  }
-               } catch (Exception ignored) {
-                  logger.debug(ignored.getMessage(), ignored);
+         bridge.getExecutor().execute(() -> {
+            try {
+               if (disconnected) {
+                  targetLocator.cleanup();
+               } else {
+                  targetLocator.close();
                }
+            } catch (Exception ignored) {
+               logger.debug(ignored.getMessage(), ignored);
             }
          });
       }
@@ -1128,6 +1128,10 @@ public final class ClusterConnectionImpl implements ClusterConnection, AfterConn
             case BINDING_REMOVED: {
                doBindingRemoved(message);
 
+               break;
+            }
+            case BINDING_UPDATED: {
+               doBindingUpdated(message);
                break;
             }
             case CONSUMER_CREATED: {
@@ -1262,6 +1266,22 @@ public final class ClusterConnectionImpl implements ClusterConnection, AfterConn
          reset = false;
          for (RemoteQueueBinding binding : new HashSet<>(bindings.values())) {
             disconnectBinding(binding.getClusterName());
+         }
+      }
+
+      private synchronized void doBindingUpdated(final ClientMessage message) throws Exception {
+         logger.trace("{} Update binding {}", ClusterConnectionImpl.this, message);
+         if (!message.containsProperty(ManagementHelper.HDR_CLUSTER_NAME)) {
+            throw new IllegalStateException("clusterName is null");
+         }
+
+         SimpleString clusterName = message.getSimpleStringProperty(ManagementHelper.HDR_CLUSTER_NAME);
+         SimpleString filterString = message.getSimpleStringProperty(ManagementHelper.HDR_FILTERSTRING);
+
+         RemoteQueueBinding existingBinding = (RemoteQueueBinding) postOffice.getBinding(clusterName);
+
+         if (existingBinding != null) {
+            existingBinding.setFilter(FilterImpl.createFilter(filterString));
          }
       }
 

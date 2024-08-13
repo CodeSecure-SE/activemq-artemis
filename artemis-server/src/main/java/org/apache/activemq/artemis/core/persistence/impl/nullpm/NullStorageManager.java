@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 import org.apache.activemq.artemis.api.core.ActiveMQBuffer;
 import org.apache.activemq.artemis.api.core.ActiveMQException;
@@ -35,6 +36,7 @@ import org.apache.activemq.artemis.core.io.IOCriticalErrorListener;
 import org.apache.activemq.artemis.core.io.SequentialFile;
 import org.apache.activemq.artemis.core.journal.Journal;
 import org.apache.activemq.artemis.core.journal.JournalLoadInformation;
+import org.apache.activemq.artemis.core.journal.RecordInfo;
 import org.apache.activemq.artemis.core.paging.PageTransactionInfo;
 import org.apache.activemq.artemis.core.paging.PagedMessage;
 import org.apache.activemq.artemis.core.paging.PagingManager;
@@ -47,7 +49,6 @@ import org.apache.activemq.artemis.core.persistence.QueueBindingInfo;
 import org.apache.activemq.artemis.core.persistence.AddressQueueStatus;
 import org.apache.activemq.artemis.core.persistence.StorageManager;
 import org.apache.activemq.artemis.core.persistence.config.AbstractPersistedAddressSetting;
-import org.apache.activemq.artemis.core.persistence.config.PersistedAddressSetting;
 import org.apache.activemq.artemis.core.persistence.config.PersistedAddressSettingJSON;
 import org.apache.activemq.artemis.core.persistence.config.PersistedBridgeConfiguration;
 import org.apache.activemq.artemis.core.persistence.config.PersistedConnector;
@@ -79,6 +80,11 @@ public class NullStorageManager implements StorageManager {
 
    private final IOCriticalErrorListener ioCriticalErrorListener;
 
+   @Override
+   public AbstractPersistedAddressSetting recoverAddressSettings(SimpleString address) {
+      return null;
+   }
+
    public NullStorageManager(IOCriticalErrorListener ioCriticalErrorListener) {
       this.ioCriticalErrorListener = ioCriticalErrorListener;
    }
@@ -95,12 +101,7 @@ public class NullStorageManager implements StorageManager {
    }
 
    public NullStorageManager() {
-      this(new IOCriticalErrorListener() {
-         @Override
-         public void onIOException(Throwable code, String message, String file) {
-            code.printStackTrace();
-         }
-      });
+      this((code, message, file) -> code.printStackTrace());
    }
 
    public NullStorageManager(int nextId) {
@@ -313,12 +314,12 @@ public class NullStorageManager implements StorageManager {
    }
 
    @Override
-   public LargeServerMessage createLargeMessage() {
+   public LargeServerMessage createCoreLargeMessage() {
       return new NullStorageLargeServerMessage();
    }
 
    @Override
-   public LargeServerMessage createLargeMessage(final long id, final Message message) {
+   public LargeServerMessage createCoreLargeMessage(final long id, final Message message) {
       NullStorageLargeServerMessage largeMessage = new NullStorageLargeServerMessage();
 
       largeMessage.moveHeadersAndProperties(message);
@@ -329,7 +330,7 @@ public class NullStorageManager implements StorageManager {
    }
 
    @Override
-   public LargeServerMessage largeMessageCreated(long id, LargeServerMessage largeMessage) throws Exception {
+   public LargeServerMessage onLargeMessageCreate(long id, LargeServerMessage largeMessage) throws Exception {
       return null;
    }
 
@@ -379,7 +380,8 @@ public class NullStorageManager implements StorageManager {
                                                     final Set<Pair<Long, Long>> pendingLargeMessages,
                                                     final Set<Long> storedLargeMessages,
                                                     List<PageCountPending> pendingNonTXPageCounter,
-                                                    final JournalLoader journalLoader) throws Exception {
+                                                    final JournalLoader journalLoader,
+                                                    final List<Consumer<RecordInfo>> extraLoaders) throws Exception {
       return new JournalLoadInformation();
    }
 
@@ -400,7 +402,7 @@ public class NullStorageManager implements StorageManager {
    }
 
    @Override
-   public void pageWrite(final PagedMessage message, final long pageNumber) {
+   public void pageWrite(final SimpleString address, final PagedMessage message, final long pageNumber) {
    }
 
    @Override
@@ -456,10 +458,6 @@ public class NullStorageManager implements StorageManager {
    @Override
    public List<AbstractPersistedAddressSetting> recoverAddressSettings() throws Exception {
       return Collections.emptyList();
-   }
-
-   @Override
-   public void storeAddressSetting(final PersistedAddressSetting addressSetting) throws Exception {
    }
 
    @Override
@@ -736,4 +734,6 @@ public class NullStorageManager implements StorageManager {
    public void deleteID(long journalD) throws Exception {
 
    }
+
+
 }

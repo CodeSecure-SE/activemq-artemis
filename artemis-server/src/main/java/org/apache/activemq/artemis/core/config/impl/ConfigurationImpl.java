@@ -18,17 +18,19 @@ package org.apache.activemq.artemis.core.config.impl;
 
 import java.beans.IndexedPropertyDescriptor;
 import java.beans.PropertyDescriptor;
-import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FilenameFilter;
+import java.io.FileReader;
+import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.PrintWriter;
+import java.io.Reader;
 import java.io.Serializable;
 import java.io.StringWriter;
+import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -51,6 +53,8 @@ import java.util.Set;
 import java.util.Stack;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.Adler32;
+import java.util.zip.Checksum;
 
 import org.apache.activemq.artemis.api.config.ActiveMQDefaultConfiguration;
 import org.apache.activemq.artemis.api.core.BroadcastGroupConfiguration;
@@ -60,10 +64,6 @@ import org.apache.activemq.artemis.api.core.Pair;
 import org.apache.activemq.artemis.api.core.QueueConfiguration;
 import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.api.core.TransportConfiguration;
-import org.apache.activemq.artemis.core.config.TransformerConfiguration;
-import org.apache.activemq.artemis.core.config.routing.ConnectionRouterConfiguration;
-import org.apache.activemq.artemis.core.config.amqpBrokerConnectivity.AMQPBrokerConnectConfiguration;
-import org.apache.activemq.artemis.core.config.amqpBrokerConnectivity.AMQPFederationBrokerPlugin;
 import org.apache.activemq.artemis.core.config.BridgeConfiguration;
 import org.apache.activemq.artemis.core.config.ClusterConnectionConfiguration;
 import org.apache.activemq.artemis.core.config.Configuration;
@@ -77,15 +77,22 @@ import org.apache.activemq.artemis.core.config.HAPolicyConfiguration;
 import org.apache.activemq.artemis.core.config.MetricsConfiguration;
 import org.apache.activemq.artemis.core.config.StoreConfiguration;
 import org.apache.activemq.artemis.core.config.WildcardConfiguration;
+import org.apache.activemq.artemis.core.config.amqpBrokerConnectivity.AMQPBrokerConnectConfiguration;
+import org.apache.activemq.artemis.core.config.amqpBrokerConnectivity.AMQPFederationBrokerPlugin;
+import org.apache.activemq.artemis.core.config.ha.ColocatedPolicyConfiguration;
+import org.apache.activemq.artemis.core.config.ha.LiveOnlyPolicyConfiguration;
 import org.apache.activemq.artemis.core.config.ha.ReplicaPolicyConfiguration;
 import org.apache.activemq.artemis.core.config.ha.ReplicatedPolicyConfiguration;
+import org.apache.activemq.artemis.core.config.ha.ReplicationBackupPolicyConfiguration;
+import org.apache.activemq.artemis.core.config.ha.ReplicationPrimaryPolicyConfiguration;
+import org.apache.activemq.artemis.core.config.ha.SharedStoreBackupPolicyConfiguration;
+import org.apache.activemq.artemis.core.config.ha.SharedStorePrimaryPolicyConfiguration;
+import org.apache.activemq.artemis.core.config.routing.ConnectionRouterConfiguration;
 import org.apache.activemq.artemis.core.config.routing.NamedPropertyConfiguration;
 import org.apache.activemq.artemis.core.config.storage.DatabaseStorageConfiguration;
-import org.apache.activemq.artemis.core.remoting.impl.invm.InVMConnectorFactory;
-import org.apache.activemq.artemis.core.remoting.impl.netty.NettyConnectorFactory;
 import org.apache.activemq.artemis.core.security.Role;
-import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
 import org.apache.activemq.artemis.core.server.ActiveMQMessageBundle;
+import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
 import org.apache.activemq.artemis.core.server.JournalType;
 import org.apache.activemq.artemis.core.server.NetworkHealthCheck;
 import org.apache.activemq.artemis.core.server.SecuritySettingPlugin;
@@ -108,7 +115,9 @@ import org.apache.activemq.artemis.core.settings.impl.ResourceLimitSettings;
 import org.apache.activemq.artemis.json.JsonArrayBuilder;
 import org.apache.activemq.artemis.json.JsonObject;
 import org.apache.activemq.artemis.json.JsonObjectBuilder;
+import org.apache.activemq.artemis.json.JsonValue;
 import org.apache.activemq.artemis.utils.ByteUtil;
+import org.apache.activemq.artemis.utils.ClassloadingUtil;
 import org.apache.activemq.artemis.utils.Env;
 import org.apache.activemq.artemis.utils.JsonLoader;
 import org.apache.activemq.artemis.utils.ObjectInputStreamWithClassLoader;
@@ -124,13 +133,9 @@ import org.apache.commons.beanutils.MappedPropertyDescriptor;
 import org.apache.commons.beanutils.MethodUtils;
 import org.apache.commons.beanutils.PropertyUtilsBean;
 import org.apache.commons.beanutils.expression.DefaultResolver;
+import org.apache.commons.beanutils.expression.Resolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import java.lang.invoke.MethodHandles;
-import java.util.zip.Adler32;
-import java.util.zip.Checksum;
-
-import org.apache.commons.beanutils.expression.Resolver;
 
 public class ConfigurationImpl implements Configuration, Serializable {
 
@@ -138,7 +143,7 @@ public class ConfigurationImpl implements Configuration, Serializable {
 
    public static final JournalType DEFAULT_JOURNAL_TYPE = JournalType.ASYNCIO;
 
-   public static final String DOT_CLASS = ".class";
+   public static final String PROPERTY_CLASS_SUFFIX = ".class";
 
    private static final int DEFAULT_JMS_MESSAGE_SIZE = 1864;
 
@@ -423,9 +428,26 @@ public class ConfigurationImpl implements Configuration, Serializable {
 
    private long mqttSessionScanInterval = ActiveMQDefaultConfiguration.getMqttSessionScanInterval();
 
+   private long mqttSessionStatePersistenceTimeout = ActiveMQDefaultConfiguration.getMqttSessionStatePersistenceTimeout();
+
    private boolean suppressSessionNotifications = ActiveMQDefaultConfiguration.getDefaultSuppressSessionNotifications();
 
    private String literalMatchMarkers = ActiveMQDefaultConfiguration.getLiteralMatchMarkers();
+
+   private String viewPermissionMethodMatchPattern = ActiveMQDefaultConfiguration.getViewPermissionMethodMatchPattern();
+
+   private String managementRbacPrefix = ActiveMQDefaultConfiguration.getManagementRbacPrefix();
+
+   private boolean managementMessagesRbac = ActiveMQDefaultConfiguration.getManagementMessagesRbac();
+
+   private int mirrorAckManagerMinQueueAttempts = ActiveMQDefaultConfiguration.getMirrorAckManagerMinQueueAttempts();
+
+   private int mirrorAckManagerMaxPageAttempts = ActiveMQDefaultConfiguration.getMirrorAckManagerMaxPageAttempts();
+
+   private int mirrorAckManagerRetryDelay = ActiveMQDefaultConfiguration.getMirrorAckManagerRetryDelay();
+
+   private boolean mirrorPageTransaction = ActiveMQDefaultConfiguration.getDefaultMirrorPageTransaction();
+
 
    /**
     * Parent folder for all data folders.
@@ -433,7 +455,6 @@ public class ConfigurationImpl implements Configuration, Serializable {
    private File artemisInstance;
    private transient JsonObject jsonStatus = JsonLoader.createObjectBuilder().build();
    private transient Checksum transientChecksum = null;
-
 
    private JsonObject getJsonStatus() {
       if (jsonStatus == null) {
@@ -488,6 +509,15 @@ public class ConfigurationImpl implements Configuration, Serializable {
       return this;
    }
 
+   // from properties, as milli
+   public void setJournalRetentionPeriod(long periodMillis) {
+      if (periodMillis <= 0) {
+         this.journalRetentionPeriod = -1;
+      } else {
+         this.journalRetentionPeriod = periodMillis;
+      }
+   }
+
    @Override
    public long getJournalRetentionMaxBytes() {
       return journalRetentionMaxBytes;
@@ -532,41 +562,39 @@ public class ConfigurationImpl implements Configuration, Serializable {
       fileUrlToProperties = resolvePropertiesSources(fileUrlToProperties);
       if (fileUrlToProperties != null) {
          for (String fileUrl : fileUrlToProperties.split(",")) {
-            Properties brokerProperties = new InsertionOrderedProperties();
             if (fileUrl.endsWith("/")) {
                // treat as a directory and parse every property file in alphabetical order
                File dir = new File(fileUrl);
                if (dir.exists()) {
-                  String[] files = dir.list(new FilenameFilter() {
-                     @Override
-                     public boolean accept(File file, String s) {
-                        return s.endsWith(".properties");
-                     }
-                  });
+                  String[] files = dir.list((file, s) -> s.endsWith(".json") || s.endsWith(".properties"));
                   if (files != null && files.length > 0) {
                      Arrays.sort(files);
                      for (String fileName : files) {
-                        try (FileInputStream fileInputStream = new FileInputStream(new File(dir, fileName));
-                             BufferedInputStream reader = new BufferedInputStream(fileInputStream)) {
-                           brokerProperties.clear();
-                           brokerProperties.load(reader);
-                           parsePrefixedProperties(this, fileName, brokerProperties, null);
-                        }
+                        parseFileProperties(new File(dir, fileName));
                      }
                   }
                }
             } else {
-               File file = new File(fileUrl);
-               try (FileInputStream fileInputStream = new FileInputStream(file);
-                    BufferedInputStream reader = new BufferedInputStream(fileInputStream)) {
-                  brokerProperties.load(reader);
-                  parsePrefixedProperties(this, file.getName(), brokerProperties, null);
-               }
+               parseFileProperties(new File(fileUrl));
             }
          }
       }
       parsePrefixedProperties(System.getProperties(), systemPropertyPrefix);
       return this;
+   }
+
+   private void parseFileProperties(File file) throws Exception {
+      InsertionOrderedProperties brokerProperties = new InsertionOrderedProperties();
+      try (FileReader fileReader = new FileReader(file);
+           BufferedReader reader = new BufferedReader(fileReader)) {
+         if (file.getName().endsWith(".json")) {
+            brokerProperties.loadJson(reader);
+         } else {
+            brokerProperties.load(reader);
+         }
+      }
+
+      parsePrefixedProperties(this, file.getName(), brokerProperties, null);
    }
 
    public void parsePrefixedProperties(Properties properties, String prefix) throws Exception {
@@ -614,6 +642,31 @@ public class ConfigurationImpl implements Configuration, Serializable {
    public void populateWithProperties(final Object target, final String propsId, Map<String, Object> beanProperties) throws InvocationTargetException, IllegalAccessException {
       CollectionAutoFillPropertiesUtil autoFillCollections = new CollectionAutoFillPropertiesUtil(getBrokerPropertiesRemoveValue(beanProperties));
       BeanUtilsBean beanUtils = new BeanUtilsBean(new ConvertUtilsBean(), autoFillCollections) {
+
+         // initialize the given property of the given bean with a new instance of the property class
+         private Object initProperty(Object bean, String name) throws InvocationTargetException, IllegalAccessException, NoSuchMethodException {
+            PropertyDescriptor descriptor = getPropertyUtils().getPropertyDescriptor(bean, name);
+            if (descriptor == null) {
+               throw new InvocationTargetException(null, "No accessor method descriptor for: " + name + " on: " + bean.getClass());
+            }
+
+            Method writeMethod = descriptor.getWriteMethod();
+            if (writeMethod == null) {
+               throw new InvocationTargetException(null, "No Write method for: " + name + " on: " + bean.getClass());
+            }
+
+            Object propertyInstance;
+            try {
+               propertyInstance = descriptor.getPropertyType().getDeclaredConstructor().newInstance();
+            } catch (InstantiationException e) {
+               throw new InvocationTargetException(e);
+            }
+
+            writeMethod.invoke(bean, propertyInstance);
+
+            return propertyInstance;
+         }
+
          // override to treat missing properties as errors, not skip as the default impl does
          @Override
          public void setProperty(final Object bean, String name, final Object value) throws InvocationTargetException, IllegalAccessException {
@@ -626,10 +679,15 @@ public class ConfigurationImpl implements Configuration, Serializable {
                final Resolver resolver = getPropertyUtils().getResolver();
                while (resolver.hasNested(name)) {
                   try {
-                     target = getPropertyUtils().getProperty(target, resolver.next(name));
-                     if (target == null) {
-                        throw new InvocationTargetException(null, "Resolved nested property for:" + name + ", on: " + bean + " was null");
+                     String nextName = resolver.next(name);
+                     Object nextTarget = getPropertyUtils().getProperty(target, nextName);
+                     if (nextTarget == null) {
+                        if (resolver.isMapped(nextName)) {
+                           throw new InvocationTargetException(null, "Entry does not exist in: " + resolver.getProperty(name) + " for mapped key: " + resolver.getKey(name));
+                        }
+                        nextTarget = initProperty(target, nextName);
                      }
+                     target = nextTarget;
                      name = resolver.remove(name);
                   } catch (final NoSuchMethodException e) {
                      throw new InvocationTargetException(e, "No getter for property:" + name + ", on: " + bean);
@@ -739,7 +797,17 @@ public class ConfigurationImpl implements Configuration, Serializable {
                   }
                } else {                             // Value into scalar
                   if (value instanceof String) {
-                     newValue = getConvertUtils().convert((String) value, type);
+                     String possibleDotClassValue = (String)value;
+                     if (type != String.class && isClassProperty(possibleDotClassValue)) {
+                        final String clazzName = extractPropertyClassName(possibleDotClassValue);
+                        try {
+                           newValue = ClassloadingUtil.getInstanceWithTypeCheck(clazzName, type, this.getClass().getClassLoader());
+                        } catch (Exception e) {
+                           throw new InvocationTargetException(e, " for dot class value: " + possibleDotClassValue + ", on: " + bean);
+                        }
+                     } else {
+                        newValue = getConvertUtils().convert(possibleDotClassValue, type);
+                     }
                   } else if (value instanceof String[]) {
                      newValue = getConvertUtils().convert(((String[]) value)[0], type);
                   } else {
@@ -762,7 +830,7 @@ public class ConfigurationImpl implements Configuration, Serializable {
       beanUtils.getConvertUtils().register(new Converter() {
          @Override
          public <T> T convert(Class<T> type, Object value) {
-            return (T) SimpleString.toSimpleString(value.toString());
+            return (T) SimpleString.of(value.toString());
          }
       }, SimpleString.class);
 
@@ -779,14 +847,6 @@ public class ConfigurationImpl implements Configuration, Serializable {
       beanUtils.getConvertUtils().register(new Converter() {
          @Override
          public <T> T convert(Class<T> type, Object value) {
-            TransformerConfiguration instance = new TransformerConfiguration(value.toString());
-            return (T) instance;
-         }
-      }, TransformerConfiguration.class);
-
-      beanUtils.getConvertUtils().register(new Converter() {
-         @Override
-         public <T> T convert(Class<T> type, Object value) {
             //we only care about DATABASE type as it is the only one used
             if (StoreConfiguration.StoreType.DATABASE.toString().equals(value)) {
                return (T) new DatabaseStorageConfiguration();
@@ -798,7 +858,7 @@ public class ConfigurationImpl implements Configuration, Serializable {
       beanUtils.getConvertUtils().register(new Converter() {
          @Override
          public <T> T convert(Class<T> type, Object value) {
-            List convertedValue = new ArrayList<String>();
+            List<String> convertedValue = new ArrayList<>();
             for (String entry : value.toString().split(",")) {
                convertedValue.add(entry);
             }
@@ -822,11 +882,13 @@ public class ConfigurationImpl implements Configuration, Serializable {
          public <T> T convert(Class<T> type, Object value) {
             Map convertedValue = new HashMap();
             for (String entry : value.toString().split(",")) {
-               String[] kv = entry.split("=");
-               if (2 != kv.length) {
-                  throw new IllegalArgumentException("map value " + value + " not in k=v format");
+               if (!entry.isBlank()) {
+                  String[] kv = entry.split("=");
+                  if (2 != kv.length) {
+                     throw new IllegalArgumentException("map value " + value + " not in k=v format");
+                  }
+                  convertedValue.put(kv[0], kv[1]);
                }
-               convertedValue.put(kv[0], kv[1]);
             }
             return (T) convertedValue;
          }
@@ -839,6 +901,35 @@ public class ConfigurationImpl implements Configuration, Serializable {
             return (T) (Long) ByteUtil.convertTextBytes(value.toString());
          }
       }, Long.TYPE);
+
+      beanUtils.getConvertUtils().register(new Converter() {
+         @Override
+         public <T> T convert(Class<T> type, Object value) {
+            HAPolicyConfiguration.TYPE haPolicyType =
+               HAPolicyConfiguration.TYPE.valueOf(value.toString());
+
+            switch (haPolicyType) {
+               case PRIMARY_ONLY:
+                  return (T) new LiveOnlyPolicyConfiguration();
+               case REPLICATION_PRIMARY_QUORUM_VOTING:
+                  return (T) new ReplicatedPolicyConfiguration();
+               case REPLICATION_BACKUP_QUORUM_VOTING:
+                  return (T) new ReplicaPolicyConfiguration();
+               case SHARED_STORE_PRIMARY:
+                  return (T) new SharedStorePrimaryPolicyConfiguration();
+               case SHARED_STORE_BACKUP:
+                  return (T) new SharedStoreBackupPolicyConfiguration();
+               case COLOCATED:
+                  return (T) new ColocatedPolicyConfiguration();
+               case REPLICATION_PRIMARY_LOCK_MANAGER:
+                  return (T) ReplicationPrimaryPolicyConfiguration.withDefault();
+               case REPLICATION_BACKUP_LOCK_MANAGER:
+                  return (T) ReplicationBackupPolicyConfiguration.withDefault();
+            }
+
+            throw ActiveMQMessageBundle.BUNDLE.unsupportedHAPolicyPropertyType(value.toString());
+         }
+      }, HAPolicyConfiguration.class);
 
       BeanSupport.customise(beanUtils);
 
@@ -867,9 +958,17 @@ public class ConfigurationImpl implements Configuration, Serializable {
       updateApplyStatus(propsId, errors);
    }
 
+   protected static boolean isClassProperty(String property) {
+      return property.endsWith(PROPERTY_CLASS_SUFFIX);
+   }
+
+   protected static String extractPropertyClassName(String property) {
+      return property.substring(0, property.length() - PROPERTY_CLASS_SUFFIX.length());
+   }
+
    private void trackError(HashMap<String, String> errors, Map.Entry<String,?> entry, Throwable oops) {
       logger.debug("failed to populate property entry({}), reason: {}", entry, oops);
-      errors.put(entry.toString(), oops.getLocalizedMessage());
+      errors.put(entry.toString(), oops.toString());
    }
 
    private synchronized void updateApplyStatus(String propsId, HashMap<String, String> errors) {
@@ -2261,6 +2360,11 @@ public class ConfigurationImpl implements Configuration, Serializable {
       return brokerPlugins;
    }
 
+   // for properties type inference
+   public void addBrokerPlugin(ActiveMQServerBasePlugin type) {
+      registerBrokerPlugin(type);
+   }
+
    @Override
    public List<ActiveMQServerConnectionPlugin> getBrokerConnectionPlugins() {
       return brokerConnectionPlugins;
@@ -2889,25 +2993,22 @@ public class ConfigurationImpl implements Configuration, Serializable {
 
    @Override
    public Configuration copy() throws Exception {
-      return AccessController.doPrivileged(new PrivilegedExceptionAction<Configuration>() {
-         @Override
-         public Configuration run() throws Exception {
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            ObjectOutputStream os = new ObjectOutputStream(bos);
-            os.writeObject(ConfigurationImpl.this);
-            Configuration config;
-            try (ObjectInputStream ois = new ObjectInputStreamWithClassLoader(new ByteArrayInputStream(bos.toByteArray()))) {
-               config = (Configuration) ois.readObject();
-            }
-
-            // this is transient because of possible jgroups integration, we need to copy it manually
-            config.setBroadcastGroupConfigurations(ConfigurationImpl.this.getBroadcastGroupConfigurations());
-
-            // this is transient because of possible jgroups integration, we need to copy it manually
-            config.setDiscoveryGroupConfigurations(ConfigurationImpl.this.getDiscoveryGroupConfigurations());
-
-            return config;
+      return AccessController.doPrivileged((PrivilegedExceptionAction<Configuration>) () -> {
+         ByteArrayOutputStream bos = new ByteArrayOutputStream();
+         ObjectOutputStream os = new ObjectOutputStream(bos);
+         os.writeObject(ConfigurationImpl.this);
+         Configuration config;
+         try (ObjectInputStream ois = new ObjectInputStreamWithClassLoader(new ByteArrayInputStream(bos.toByteArray()))) {
+            config = (Configuration) ois.readObject();
          }
+
+         // this is transient because of possible jgroups integration, we need to copy it manually
+         config.setBroadcastGroupConfigurations(ConfigurationImpl.this.getBroadcastGroupConfigurations());
+
+         // this is transient because of possible jgroups integration, we need to copy it manually
+         config.setDiscoveryGroupConfigurations(ConfigurationImpl.this.getDiscoveryGroupConfigurations());
+
+         return config;
       });
 
    }
@@ -3190,6 +3291,17 @@ public class ConfigurationImpl implements Configuration, Serializable {
    }
 
    @Override
+   public long getMqttSessionStatePersistenceTimeout() {
+      return mqttSessionStatePersistenceTimeout;
+   }
+
+   @Override
+   public Configuration setMqttSessionStatePersistenceTimeout(long mqttSessionStatePersistenceTimeout) {
+      this.mqttSessionStatePersistenceTimeout = mqttSessionStatePersistenceTimeout;
+      return this;
+   }
+
+   @Override
    public boolean isSuppressSessionNotifications() {
       return suppressSessionNotifications;
    }
@@ -3232,6 +3344,85 @@ public class ConfigurationImpl implements Configuration, Serializable {
    @Override
    public boolean isLargeMessageSync() {
       return largeMessageSync;
+   }
+
+   @Override
+   public String getViewPermissionMethodMatchPattern() {
+      return viewPermissionMethodMatchPattern;
+   }
+
+   @Override
+   public void setViewPermissionMethodMatchPattern(String permissionMatchPattern) {
+      viewPermissionMethodMatchPattern = permissionMatchPattern;
+   }
+
+   @Override
+   public boolean isManagementMessageRbac() {
+      return managementMessagesRbac;
+   }
+
+   @Override
+   public void setManagementMessageRbac(boolean val) {
+      this.managementMessagesRbac = val;
+   }
+
+   @Override
+   public String getManagementRbacPrefix() {
+      return managementRbacPrefix;
+   }
+
+   @Override
+   public void setManagementRbacPrefix(String prefix) {
+      this.managementRbacPrefix = prefix;
+   }
+
+
+   @Override
+   public int getMirrorAckManagerQueueAttempts() {
+      return mirrorAckManagerMinQueueAttempts;
+   }
+
+   @Override
+   public ConfigurationImpl setMirrorAckManagerQueueAttempts(int minQueueAttempts) {
+      logger.debug("Setting mirrorAckManagerMinQueueAttempts = {}", minQueueAttempts);
+      this.mirrorAckManagerMinQueueAttempts = minQueueAttempts;
+      return this;
+   }
+
+   @Override
+   public int getMirrorAckManagerPageAttempts() {
+      return this.mirrorAckManagerMaxPageAttempts;
+   }
+
+   @Override
+   public ConfigurationImpl setMirrorAckManagerPageAttempts(int maxPageAttempts) {
+      logger.debug("Setting mirrorAckManagerMaxPageAttempts = {}", maxPageAttempts);
+      this.mirrorAckManagerMaxPageAttempts = maxPageAttempts;
+      return this;
+   }
+
+   @Override
+   public int getMirrorAckManagerRetryDelay() {
+      return mirrorAckManagerRetryDelay;
+   }
+
+   @Override
+   public ConfigurationImpl setMirrorAckManagerRetryDelay(int delay) {
+      logger.debug("Setting mirrorAckManagerRetryDelay = {}", delay);
+      this.mirrorAckManagerRetryDelay = delay;
+      return this;
+   }
+
+   @Override
+   public boolean isMirrorPageTransaction() {
+      return mirrorPageTransaction;
+   }
+
+   @Override
+   public Configuration setMirrorPageTransaction(boolean ignorePageTransactions) {
+      logger.debug("Setting mirrorIgnorePageTransactions={}", ignorePageTransactions);
+      this.mirrorPageTransaction = ignorePageTransactions;
+      return this;
    }
 
    // extend property utils with ability to auto-fill and locate from collections
@@ -3303,10 +3494,19 @@ public class ConfigurationImpl implements Configuration, Serializable {
 
       private Object findByNameProperty(String key, Collection collection) throws InvocationTargetException, IllegalAccessException, NoSuchMethodException {
          // locate on name property, may be a SimpleString
-         for (Object candidate : collection) {
-            Object candidateName = getProperty(candidate, "name");
-            if (candidateName != null && key.equals(candidateName.toString())) {
-               return candidate;
+         if (isClassProperty(key)) {
+            Object propertyClassName = extractPropertyClassName(key);
+            for (Object candidate : collection) {
+               if (candidate.getClass().getName().equals(propertyClassName)) {
+                  return candidate;
+               }
+            }
+         } else {
+            for (Object candidate : collection) {
+               Object candidateName = getProperty(candidate, "name");
+               if (candidateName != null && key.equals(candidateName.toString())) {
+                  return candidate;
+               }
             }
          }
          return null;
@@ -3403,44 +3603,40 @@ public class ConfigurationImpl implements Configuration, Serializable {
 
          Object instance = null;
          try {
-            if (name.indexOf(DOT_CLASS) > 0) {
-               final String clazzName = name.substring(0, name.length() - DOT_CLASS.length());
-               instance = this.getClass().getClassLoader().loadClass(clazzName).getDeclaredConstructor().newInstance();
+            // we don't know the type, infer from add method add(X x) or add(String key, X x)
+            final String addPropertyName = addPropertyNameBuilder.toString();
+            final Method[] methods = hostingBean.getClass().getMethods();
+            final Method candidate = Arrays.stream(methods).filter(method -> method.getName().equals(addPropertyName) && ((method.getParameterCount() == 1) || (method.getParameterCount() == 2
+               // has a String key
+               && String.class.equals(method.getParameterTypes()[0])
+               // but not initialised from a String form (eg: uri)
+               && !String.class.equals(method.getParameterTypes()[1])))).sorted((method1, method2) -> method2.getParameterCount() - method1.getParameterCount()).findFirst().orElse(null);
+
+            if (candidate == null) {
+               throw new IllegalArgumentException("failed to locate add method for collection property " + addPropertyName);
+            }
+            Class type = candidate.getParameterTypes()[candidate.getParameterCount() - 1];
+
+            if (isClassProperty(name)) {
+               final String clazzName = extractPropertyClassName(name);
+               instance = ClassloadingUtil.getInstanceWithTypeCheck(clazzName, type, this.getClass().getClassLoader());
             } else {
-               // we don't know the type, infer from add method add(X x) or add(String key, X x)
-               final String addPropertyName = addPropertyNameBuilder.toString();
-               final Method[] methods = hostingBean.getClass().getMethods();
-               final Method candidate = Arrays.stream(methods).filter(method -> method.getName().equals(addPropertyName) && ((method.getParameterCount() == 1) || (method.getParameterCount() == 2
-                  // has a String key
-                  && String.class.equals(method.getParameterTypes()[0])
-                  // but not initialised from a String form (eg: uri)
-                  && !String.class.equals(method.getParameterTypes()[1])))).sorted((method1, method2) -> method2.getParameterCount() - method1.getParameterCount()).findFirst().orElse(null);
-
-               if (candidate == null) {
-                  throw new IllegalArgumentException("failed to locate add method for collection property " + addPropertyName);
-               }
-
-               instance = candidate.getParameterTypes()[candidate.getParameterCount() - 1].getDeclaredConstructor().newInstance();
+               instance = type.getDeclaredConstructor().newInstance();
             }
             // initialise with name
-
             try {
                beanUtilsBean.setProperty(instance, "name", name);
             } catch (Throwable ignored) {
                // for maps a name attribute is not mandatory
             }
 
-            // this is always going to be a little hacky b/c our config is not natively property friendly
-            if (instance instanceof TransportConfiguration) {
-               beanUtilsBean.setProperty(instance, "factoryClassName", "invm".equals(name) ? InVMConnectorFactory.class.getName() : NettyConnectorFactory.class.getName());
-            }
             return instance;
 
          } catch (Exception e) {
             if (logger.isDebugEnabled()) {
                logger.debug("Failed to add entry for {} to collection: {}", name, hostingBean, e);
             }
-            throw new IllegalArgumentException("failed to add entry for collection key " + name, e);
+            throw new IllegalArgumentException("failed to add entry for collection key " + name + ", cause " + e.getMessage(), e);
          }
       }
 
@@ -3500,6 +3696,41 @@ public class ConfigurationImpl implements Configuration, Serializable {
       @Override
       public void clear() {
          orderedMap.clear();
+      }
+
+      public synchronized boolean loadJson(Reader reader) throws IOException {
+         JsonObject jsonObject = JsonLoader.readObject(reader);
+
+         loadJsonObject("", jsonObject);
+
+         return true;
+      }
+
+      private void loadJsonObject(String parentKey, JsonObject jsonObject) {
+         jsonObject.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(jsonEntry -> {
+            JsonValue jsonValue = jsonEntry.getValue();
+            JsonValue.ValueType jsonValueType = jsonValue.getValueType();
+            String jsonKey = jsonEntry.getKey();
+            if (jsonKey.contains(".")) {
+               jsonKey = "\"" + jsonKey + "\"";
+            }
+            String propertyKey = parentKey + jsonKey;
+            switch (jsonValueType) {
+               case OBJECT:
+                  loadJsonObject(propertyKey + ".", jsonValue.asJsonObject());
+                  break;
+               case STRING:
+                  put(propertyKey, jsonObject.getString(jsonKey));
+                  break;
+               case NUMBER:
+               case TRUE:
+               case FALSE:
+                  put(propertyKey, jsonValue.toString());
+                  break;
+               default:
+                  throw new IllegalStateException("JSON value type not supported: " + jsonValueType);
+            }
+         });
       }
    }
 }

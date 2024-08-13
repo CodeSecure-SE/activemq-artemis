@@ -131,7 +131,7 @@ public class ClientProducerImpl implements ClientProducerInternal {
 
    @Override
    public void send(final String address1, final Message message) throws ActiveMQException {
-      send(SimpleString.toSimpleString(address1), message);
+      send(SimpleString.of(address1), message);
    }
 
    @Override
@@ -443,10 +443,6 @@ public class ClientProducerImpl implements ClientProducerInternal {
          deflaterReader = new DeflaterReader(inputStreamParameter, messageSize);
          deflaterReader.setLevel(session.getCompressionLevel());
          input = deflaterReader;
-      } else if (msgI.getBooleanProperty(Message.HDR_LARGE_COMPRESSED)) {
-         //This needs to be false if we do not intend to compress the message
-         //and the header already exists
-         msgI.putBooleanProperty(Message.HDR_LARGE_COMPRESSED, false);
       }
 
       long totalSize = 0;

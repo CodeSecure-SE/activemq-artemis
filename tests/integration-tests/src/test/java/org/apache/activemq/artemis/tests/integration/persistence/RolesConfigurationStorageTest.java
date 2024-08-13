@@ -23,9 +23,15 @@ import java.util.Map;
 import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.core.config.StoreConfiguration;
 import org.apache.activemq.artemis.core.persistence.config.PersistedSecuritySetting;
-import org.junit.Before;
-import org.junit.Test;
+import org.apache.activemq.artemis.tests.extensions.parameterized.ParameterizedTestExtension;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.TestTemplate;
+import org.junit.jupiter.api.extension.ExtendWith;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+//Parameters set in super class
+@ExtendWith(ParameterizedTestExtension.class)
 public class RolesConfigurationStorageTest extends StorageManagerTestBase {
 
    private Map<SimpleString, PersistedSecuritySetting> mapExpectedSets;
@@ -35,7 +41,7 @@ public class RolesConfigurationStorageTest extends StorageManagerTestBase {
    }
 
    @Override
-   @Before
+   @BeforeEach
    public void setUp() throws Exception {
       super.setUp();
       mapExpectedSets = new HashMap<>();
@@ -46,63 +52,44 @@ public class RolesConfigurationStorageTest extends StorageManagerTestBase {
       journal.storeSecuritySetting(setting);
    }
 
-   @Test
+   @TestTemplate
    public void testStoreSecuritySettings() throws Exception {
-      createStorage();
+      addSetting(new PersistedSecuritySetting("a#", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", null, null));
 
-      addSetting(new PersistedSecuritySetting("a#", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1"));
-
-      addSetting(new PersistedSecuritySetting("a2", "a1", null, "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1"));
-
-      journal.stop();
+      addSetting(new PersistedSecuritySetting("a2", "a1", null, "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", null, null));
 
       checkSettings();
 
-      createStorage();
+      rebootStorage();
 
       checkSettings();
 
-      addSetting(new PersistedSecuritySetting("a2", "a1", null, "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1"));
+      addSetting(new PersistedSecuritySetting("a2", "a1", null, "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", null, null));
 
-      addSetting(new PersistedSecuritySetting("a3", "a1", null, "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1"));
-
-      checkSettings();
-
-      journal.stop();
-
-      createStorage();
+      addSetting(new PersistedSecuritySetting("a3", "a1", null, "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", null, null));
 
       checkSettings();
 
-      journal.stop();
+      rebootStorage();
 
-      journal = null;
-
+      checkSettings();
    }
 
-   @Test
+   @TestTemplate
    public void testStoreSecuritySettings2() throws Exception {
-      createStorage();
+      checkSettings();
+
+      rebootStorage();
 
       checkSettings();
 
-      journal.stop();
+      addSetting(new PersistedSecuritySetting("a#", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", null, null));
 
-      createStorage();
-
-      checkSettings();
-
-      addSetting(new PersistedSecuritySetting("a#", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1", "a1"));
-
-      journal.stop();
-
-      createStorage();
+      rebootStorage();
 
       checkSettings();
 
-      journal.stop();
-
-      createStorage();
+      rebootStorage();
 
       checkSettings();
    }
@@ -122,5 +109,4 @@ public class RolesConfigurationStorageTest extends StorageManagerTestBase {
          assertEquals(el, el2);
       }
    }
-
 }

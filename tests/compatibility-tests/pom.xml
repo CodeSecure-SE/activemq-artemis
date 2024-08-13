@@ -20,7 +20,7 @@
    <parent>
       <groupId>org.apache.activemq.tests</groupId>
       <artifactId>artemis-tests-pom</artifactId>
-      <version>2.32.0-SNAPSHOT</version>
+      <version>2.37.0-SNAPSHOT</version>
    </parent>
 
    <artifactId>compatibility-tests</artifactId>
@@ -36,57 +36,42 @@
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-jms-client</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-jms-server</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-ra</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-cli</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-commons</artifactId>
-         <version>${project.version}</version>
-      </dependency>
-      <dependency>
-         <groupId>org.apache.activemq</groupId>
-         <artifactId>artemis-spring-integration</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-journal</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-jdbc-store</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-amqp-protocol</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-stomp-protocol</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-openwire-protocol</artifactId>
-         <version>${project.version}</version>
          <exclusions>
             <exclusion>
                <groupId>org.apache.geronimo.specs</groupId>
@@ -97,17 +82,14 @@
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-hornetq-protocol</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-core-client</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-server</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
@@ -117,7 +99,6 @@
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-service-extensions</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
@@ -127,8 +108,8 @@
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-features</artifactId>
-         <version>${project.version}</version>
-         <type>pom</type>
+         <classifier>features</classifier>
+         <type>xml</type>
       </dependency>
       <dependency>
          <groupId>org.apache.groovy</groupId>
@@ -138,15 +119,9 @@
          <exclusions>
             <exclusion>
                <groupId>org.apache.groovy</groupId>
-               <artifactId>groovy-test-junit5</artifactId>
+               <artifactId>groovy-test</artifactId>
             </exclusion>
          </exclusions>
-      </dependency>
-      <dependency>
-         <groupId>org.apache.activemq</groupId>
-         <artifactId>artemis-junit</artifactId>
-         <version>${project.version}</version>
-         <scope>test</scope>
       </dependency>
       <dependency>
          <groupId>org.apache.activemq</groupId>
@@ -166,7 +141,6 @@
       <dependency>
          <groupId>org.apache.activemq</groupId>
          <artifactId>artemis-mqtt-protocol</artifactId>
-         <version>${project.version}</version>
       </dependency>
       <dependency>
          <groupId>org.fusesource.mqtt-client</groupId>
@@ -210,8 +184,12 @@
          <artifactId>netty-transport</artifactId>
       </dependency>
       <dependency>
-         <groupId>junit</groupId>
-         <artifactId>junit</artifactId>
+         <groupId>org.junit.jupiter</groupId>
+         <artifactId>junit-jupiter-api</artifactId>
+      </dependency>
+      <dependency>
+         <groupId>org.junit.jupiter</groupId>
+         <artifactId>junit-jupiter-engine</artifactId>
       </dependency>
       <dependency>
          <groupId>org.apache.qpid</groupId>
@@ -234,7 +212,7 @@
       <dependency>
          <groupId>org.jboss.marshalling</groupId>
          <artifactId>jboss-marshalling-river</artifactId>
-         <version>2.0.9.Final</version>
+         <version>2.1.4.Final</version>
       </dependency>
 
       <!-- The johnzon-core and json-api contents are repackaged in -commons,
@@ -264,7 +242,7 @@
          <plugin>
             <groupId>org.apache.servicemix.tooling</groupId>
             <artifactId>depends-maven-plugin</artifactId>
-            <version>1.2</version>
+            <version>1.5.0</version>
             <executions>
                <execution>
                   <id>generate-depends-file</id>
@@ -337,6 +315,8 @@
                               <arg>org.apache.activemq:artemis-server:${project.version}</arg>
                               <arg>org.apache.activemq:artemis-journal:${project.version}</arg>
                               <arg>org.apache.activemq:artemis-hornetq-protocol:${project.version}</arg>
+                              <arg>org.apache.activemq:artemis-jakarta-openwire-protocol:${project.version}</arg>
+                              <arg>org.apache.logging.log4j:log4j-slf4j2-impl:${log4j.version}</arg>
                               <arg>org.apache.groovy:groovy-all:pom:${groovy.version}</arg>
                            </libListWithDeps>
                            <libList>
@@ -469,6 +449,28 @@
                         </configuration>
                      </execution>
                      <execution>
+                        <phase>compile</phase>
+                        <goals>
+                           <goal>dependency-scan</goal>
+                        </goals>
+                        <id>2_33_0-check</id>
+                        <configuration>
+                           <optional>true</optional>
+                           <libListWithDeps>
+                              <arg>org.apache.activemq:artemis-jms-server:2.33.0</arg>
+                              <arg>org.apache.activemq:artemis-cli:2.33.0</arg>
+                              <arg>org.apache.activemq:artemis-jms-client:2.33.0</arg>
+                              <arg>org.apache.activemq:artemis-hornetq-protocol:2.33.0</arg>
+                              <arg>org.apache.activemq:artemis-amqp-protocol:2.33.0</arg>
+                              <arg>org.apache.groovy:groovy-all:pom:${groovy.version}</arg>
+                           </libListWithDeps>
+                           <libList>
+                              <arg>org.apache.activemq.tests:compatibility-tests:${project.version}</arg>
+                           </libList>
+                           <file>${basedir}/target/ARTEMIS-2_33_0.cp</file>
+                        </configuration>
+                     </execution>
+                      <execution>
                         <phase>compile</phase>
                         <goals>
                            <goal>dependency-scan</goal>
@@ -686,6 +688,7 @@
                            <optional>true</optional>
                            <libListWithDeps>
                               <arg>org.apache.activemq:activemq-client:5.11.0</arg>
+                              <arg>org.apache.logging.log4j:log4j-slf4j2-impl:${log4j.version}</arg>
                               <arg>org.apache.groovy:groovy-all:pom:${groovy.version}</arg>
                            </libListWithDeps>
                            <libList>
@@ -700,17 +703,4 @@
          </build>
       </profile>
    </profiles>
-   <distributionManagement>
-      <repository>
-         <id>jboss-releases-repository</id>
-         <name>JBoss Releases Repository</name>
-         <url>https://repository.jboss.org/nexus/service/local/staging/deploy/maven2/</url>
-      </repository>
-      <snapshotRepository>
-         <id>jboss-snapshots-repository</id>
-         <name>JBoss Snapshots Repository</name>
-         <url>https://repository.jboss.org/nexus/content/repositories/snapshots/</url>
-      </snapshotRepository>
-   </distributionManagement>
-
 </project>

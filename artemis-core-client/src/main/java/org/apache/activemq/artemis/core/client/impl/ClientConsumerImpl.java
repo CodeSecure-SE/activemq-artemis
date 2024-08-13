@@ -59,7 +59,7 @@ public final class ClientConsumerImpl implements ClientConsumerInternal {
 
    private static final int NUM_PRIORITIES = 10;
 
-   public static final SimpleString FORCED_DELIVERY_MESSAGE = new SimpleString("_hornetq.forced.delivery.seq");
+   public static final SimpleString FORCED_DELIVERY_MESSAGE = SimpleString.of("_hornetq.forced.delivery.seq");
 
    private final ClientSessionInternal session;
 
@@ -463,12 +463,7 @@ public final class ClientConsumerImpl implements ClientConsumerInternal {
       resetLargeMessageController();
 
       //execute the future after the last onMessage call
-      sessionExecutor.execute(new Runnable() {
-         @Override
-         public void run() {
-            future.run();
-         }
-      });
+      sessionExecutor.execute(future::run);
 
       return onMessageThread;
    }
@@ -646,6 +641,7 @@ public final class ClientConsumerImpl implements ClientConsumerInternal {
       qbuff.readBytes(body);
       largeMessage.setLargeMessageController(new CompressedLargeMessageControllerImpl(currentLargeMessageController));
       currentLargeMessageController.addPacket(body, body.length, false);
+      largeMessage.putBooleanProperty(Message.HDR_LARGE_COMPRESSED, false);
 
       handleRegularMessage(largeMessage);
    }
@@ -674,6 +670,7 @@ public final class ClientConsumerImpl implements ClientConsumerInternal {
 
       if (clientLargeMessage.isCompressed()) {
          clientLargeMessage.setLargeMessageController(new CompressedLargeMessageControllerImpl(currentLargeMessageController));
+         clientLargeMessage.putBooleanProperty(Message.HDR_LARGE_COMPRESSED, false);
       } else {
          clientLargeMessage.setLargeMessageController(currentLargeMessageController);
       }
@@ -865,12 +862,7 @@ public final class ClientConsumerImpl implements ClientConsumerInternal {
 
          // If resetting a slow consumer, we need to wait the execution
          final CountDownLatch latch = new CountDownLatch(1);
-         flowControlExecutor.execute(new Runnable() {
-            @Override
-            public void run() {
-               latch.countDown();
-            }
-         });
+         flowControlExecutor.execute(latch::countDown);
 
          try {
             latch.await(10, TimeUnit.SECONDS);
@@ -896,14 +888,11 @@ public final class ClientConsumerImpl implements ClientConsumerInternal {
     */
    private void sendCredits(final int credits) {
       pendingFlowControl.countUp();
-      flowControlExecutor.execute(new Runnable() {
-         @Override
-         public void run() {
-            try {
-               sessionContext.sendConsumerCredits(ClientConsumerImpl.this, credits);
-            } finally {
-               pendingFlowControl.countDown();
-            }
+      flowControlExecutor.execute(() -> {
+         try {
+            sessionContext.sendConsumerCredits(ClientConsumerImpl.this, credits);
+         } finally {
+            pendingFlowControl.countDown();
          }
       });
    }
