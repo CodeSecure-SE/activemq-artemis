@@ -72,12 +72,9 @@ jobs:
           uses: thollander/actions-comment-pull-request@v2
           with: 
               filePath: warnings.md
-        - name: Remove srcroot
-          run: |
-            python3 cso-scripts/remove_srcroot.py warnings.sarif > warnings-nosrcroot.sarif
         - name: Upload SARIF results
           uses: github/codeql-action/upload-sarif@v3
           with:
-              sarif_file: warnings-nosrcroot.sarif
+              sarif_file: warnings.sarif
               category: "CodeSecure CodeSonar"     
     

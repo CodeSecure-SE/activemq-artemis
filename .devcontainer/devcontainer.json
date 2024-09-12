@@ -4,14 +4,16 @@
 	"name": "Artemis - CodeSonar ",
 	"image": "codesecurese/mvn-csoj-builder:8.0p0",
 	"mounts" : [
-	"source=${localEnv:HOME}/.csurf,target=/home/user/.csurf,type=bind"
+	"source=${localEnv:HOME}/.csurf,target=/home/user/.csurf,type=bind",
+	"source=${localEnv:HOME}/.m2,target=/home/user/.m2,type=bind"
 	],
 	"customizations": {
 		"vscode": {
 			"extensions": [
 				"CodeSecure.vscode-codesonar",
 				"vscjava.vscode-java-pack",
-				"github.vscode-github-actions"
+				"github.vscode-github-actions",
+				"MS-SarifVSCode.sarif-viewer"
 			]
 		}
 	}
